@@ -5,6 +5,9 @@
       "path": "./packages/config"
     },
     {
+      "path": "./packages/network"
+    },
+    {
       "path": "./packages/storage"
     },
     {
@@ -12,4 +15,3 @@
     }
   ]
 }
-

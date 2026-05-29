@@ -37,6 +37,18 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/network": {
+      "name": "@pocketpatch/network",
+      "version": "0.0.0",
+      "dependencies": {
+        "@pocketpatch/config": "workspace:*",
+        "effect": "^3.21.2",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.2",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/storage": {
       "name": "@pocketpatch/storage",
       "version": "0.0.0",
@@ -114,6 +126,8 @@
     "@pocketpatch/config": ["@pocketpatch/config@workspace:packages/config"],
 
     "@pocketpatch/daemon": ["@pocketpatch/daemon@workspace:packages/daemon"],
+
+    "@pocketpatch/network": ["@pocketpatch/network@workspace:packages/network"],
 
     "@pocketpatch/storage": ["@pocketpatch/storage@workspace:packages/storage"],
 
