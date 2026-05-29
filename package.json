@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "bun test packages/*/test",
+    "test": "bun test ./packages/*/test",
     "typecheck": "tsc -b"
   },
   "devDependencies": {
