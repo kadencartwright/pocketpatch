@@ -55,4 +55,21 @@ describe("PocketPatch config", () => {
       }
     })).rejects.toThrow();
   });
+
+  test("sets a bind address without mutating the original config", async () => {
+    const updated = await Config.setBindAddress(Config.defaultConfig, "100.64.12.34");
+
+    expect(Config.defaultConfig.network.bindAddress).toBeNull();
+    expect(updated).toEqual({
+      version: 1,
+      network: {
+        bindAddress: "100.64.12.34",
+        port: 3217
+      }
+    });
+  });
+
+  test("rejects an invalid bind address update", async () => {
+    await expect(Config.setBindAddress(Config.defaultConfig, "tailscale0")).rejects.toThrow();
+  });
 });
