@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/config"
+    },
+    {
+      "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/daemon"
+    }
+  ]
+}
+
