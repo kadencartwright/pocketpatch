@@ -1,5 +1,6 @@
 import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
 import type { ConfigEnv, PocketPatchConfig } from "@pocketpatch/config";
+import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
 import { NetworkService } from "@pocketpatch/network";
 import type { LocalAddress } from "@pocketpatch/network";
 import { describe, expect, test } from "bun:test";
@@ -66,11 +67,38 @@ const NetworkTest = Layer.succeed(NetworkService, {
   validateBindAddress: () => Effect.succeed(null)
 });
 
+const DaemonControlTest = Layer.succeed(DaemonControlService, {
+  plan: () =>
+    Effect.succeed({
+      endpoints: [
+        {
+          address: "127.0.0.1",
+          port: 3217
+        },
+        {
+          address: "::1",
+          port: 3217
+        },
+        {
+          address: "100.64.12.34",
+          port: 3217
+        }
+      ]
+    }),
+  start: () => Effect.void
+});
+
+const DaemonServerFactoryTest = Layer.succeed(DaemonServerFactory, {
+  bind: () => Effect.void
+});
+
 const runTestCli = (args: ReadonlyArray<string>) =>
   Effect.runPromise(
     runCli(args, env).pipe(
       Effect.provide(ConfigTest),
-      Effect.provide(NetworkTest)
+      Effect.provide(NetworkTest),
+      Effect.provide(DaemonControlTest),
+      Effect.provide(DaemonServerFactoryTest)
     )
   );
 
@@ -152,6 +180,33 @@ describe("runCli", () => {
         ""
       ].join("\n")
     });
+  });
+
+  test("starts the daemon through the daemon control service", async () => {
+    const startedWith: Array<ConfigEnv> = [];
+    const DaemonControlStartTest = Layer.succeed(DaemonControlService, {
+      plan: () => Effect.die("unused"),
+      start: (startEnv) =>
+        Effect.sync(() => {
+          startedWith.push(startEnv);
+        })
+    });
+
+    const result = await Effect.runPromise(
+      runCli(["daemon", "start"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlStartTest),
+        Effect.provide(DaemonServerFactoryTest)
+      )
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "Starting daemon in foreground\n"
+    });
+    expect(startedWith).toEqual([env]);
   });
 
   test("returns a failed result for invalid bind addresses", async () => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { ConfigServiceLive } from "@pocketpatch/config";
 import type { ConfigEnv } from "@pocketpatch/config";
+import { DaemonControlServiceLive, DaemonServerFactoryLive } from "@pocketpatch/daemon";
 import { NetworkServiceNodeLive } from "@pocketpatch/network";
 import { Effect } from "effect";
 import { runCli } from "./index";
@@ -16,6 +17,8 @@ const readConfigEnv = (): ConfigEnv => ({
 const result = await Effect.runPromise(
   runCli(process.argv.slice(2), readConfigEnv()).pipe(
     Effect.provide(ConfigServiceLive),
+    Effect.provide(DaemonControlServiceLive),
+    Effect.provide(DaemonServerFactoryLive),
     Effect.provide(NetworkServiceNodeLive)
   )
 );

@@ -2,7 +2,7 @@ import { Args, Command, ValidationError } from "@effect/cli";
 import { NodeContext } from "@effect/platform-node";
 import type { ConfigEnv } from "@pocketpatch/config";
 import { ConfigService } from "@pocketpatch/config";
-import { planDaemonStartup } from "@pocketpatch/daemon";
+import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
 import type { DaemonEndpoint } from "@pocketpatch/daemon";
 import { NetworkService } from "@pocketpatch/network";
 import type { LocalAddress } from "@pocketpatch/network";
@@ -143,14 +143,26 @@ const daemonPlanCommand = (
 ) =>
   Command.make("plan", {}, () =>
     Effect.gen(function*() {
-      const plan = yield* planDaemonStartup(env);
+      const daemon = yield* DaemonControlService;
+      const plan = yield* daemon.plan(env);
 
       yield* writeStdout(formatDaemonPlan(plan.endpoints));
     }));
 
+const daemonStartCommand = (
+  env: ConfigEnv
+) =>
+  Command.make("start", {}, () =>
+    Effect.gen(function*() {
+      const daemon = yield* DaemonControlService;
+
+      yield* writeStdout("Starting daemon in foreground\n");
+      yield* daemon.start(env);
+    }));
+
 const daemonCommand = (env: ConfigEnv) =>
   Command.make("daemon").pipe(
-    Command.withSubcommands([daemonPlanCommand(env)])
+    Command.withSubcommands([daemonPlanCommand(env), daemonStartCommand(env)])
   );
 
 const pocketPatchCommand = (env: ConfigEnv) =>
@@ -170,7 +182,7 @@ const runCliCommand = (
 export const runCli = (
   args: ReadonlyArray<string>,
   env: ConfigEnv
-): Effect.Effect<CliResult, never, ConfigService | NetworkService> =>
+): Effect.Effect<CliResult, never, ConfigService | DaemonControlService | DaemonServerFactory | NetworkService> =>
   Effect.gen(function*() {
     const stdout: Array<string> = [];
     const stderr: Array<string> = [];

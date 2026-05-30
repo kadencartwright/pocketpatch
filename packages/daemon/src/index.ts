@@ -106,3 +106,23 @@ export const DaemonServerFactoryLive = Layer.succeed(DaemonServerFactory, {
 
 export const startDaemon = (env: ConfigEnv) =>
   Effect.flatMap(planDaemonStartup(env), startDaemonServers);
+
+export const startDaemonForeground = (env: ConfigEnv) =>
+  Effect.scoped(
+    startDaemon(env).pipe(
+      Effect.zipRight(Effect.never)
+    )
+  );
+
+export class DaemonControlService extends Context.Tag("@pocketpatch/daemon/DaemonControlService")<
+  DaemonControlService,
+  {
+    readonly plan: typeof planDaemonStartup;
+    readonly start: typeof startDaemonForeground;
+  }
+>() {}
+
+export const DaemonControlServiceLive = Layer.succeed(DaemonControlService, {
+  plan: planDaemonStartup,
+  start: startDaemonForeground
+});
