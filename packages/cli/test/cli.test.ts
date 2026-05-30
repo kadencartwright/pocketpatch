@@ -5,7 +5,7 @@ import { NetworkService } from "@pocketpatch/network";
 import type { LocalAddress } from "@pocketpatch/network";
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { runCli } from "../src/index";
+import { DaemonClientError, DaemonClientService, WorkingDirectoryService, runCli } from "../src/index";
 
 const env: ConfigEnv = {
   HOME: "/home/k",
@@ -92,13 +92,32 @@ const DaemonServerFactoryTest = Layer.succeed(DaemonServerFactory, {
   bind: () => Effect.void
 });
 
+const DaemonClientTest = Layer.succeed(DaemonClientService, {
+  registerProject: (_env, path) =>
+    Effect.succeed({
+      project: {
+        createdAt: "2026-05-30T12:00:00.000Z",
+        id: 1,
+        lastSeenAt: "2026-05-30T12:00:00.000Z",
+        path
+      },
+      reviewUrl: "http://127.0.0.1:3217/projects/1"
+    })
+});
+
+const WorkingDirectoryTest = Layer.succeed(WorkingDirectoryService, {
+  cwd: Effect.succeed("/home/k/code/pocketpatch")
+});
+
 const runTestCli = (args: ReadonlyArray<string>) =>
   Effect.runPromise(
     runCli(args, env).pipe(
       Effect.provide(ConfigTest),
       Effect.provide(NetworkTest),
       Effect.provide(DaemonControlTest),
-      Effect.provide(DaemonServerFactoryTest)
+      Effect.provide(DaemonServerFactoryTest),
+      Effect.provide(DaemonClientTest),
+      Effect.provide(WorkingDirectoryTest)
     )
   );
 
@@ -207,6 +226,103 @@ describe("runCli", () => {
       stdout: "Starting daemon in foreground\n"
     });
     expect(startedWith).toEqual([env]);
+  });
+
+  test("registers the current working directory", async () => {
+    const registered: Array<string> = [];
+    const DaemonClientRegisterTest = Layer.succeed(DaemonClientService, {
+      registerProject: (_env, path) =>
+        Effect.sync(() => {
+          registered.push(path);
+          return {
+            project: {
+              createdAt: "2026-05-30T12:00:00.000Z",
+              id: 7,
+              lastSeenAt: "2026-05-30T12:00:00.000Z",
+              path
+            },
+            reviewUrl: "http://127.0.0.1:3217/projects/7"
+          };
+        })
+    });
+
+    const result = await Effect.runPromise(
+      runCli(["register"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonClientRegisterTest),
+        Effect.provide(WorkingDirectoryTest)
+      )
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "http://127.0.0.1:3217/projects/7\n"
+    });
+    expect(registered).toEqual(["/home/k/code/pocketpatch"]);
+  });
+
+  test("registers an explicit path", async () => {
+    const registered: Array<string> = [];
+    const DaemonClientRegisterTest = Layer.succeed(DaemonClientService, {
+      registerProject: (_env, path) =>
+        Effect.sync(() => {
+          registered.push(path);
+          return {
+            project: {
+              createdAt: "2026-05-30T12:00:00.000Z",
+              id: 8,
+              lastSeenAt: "2026-05-30T12:00:00.000Z",
+              path
+            },
+            reviewUrl: "http://127.0.0.1:3217/projects/8"
+          };
+        })
+    });
+
+    const result = await Effect.runPromise(
+      runCli(["register", "/tmp/project"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonClientRegisterTest),
+        Effect.provide(WorkingDirectoryTest)
+      )
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "http://127.0.0.1:3217/projects/8\n"
+    });
+    expect(registered).toEqual(["/tmp/project"]);
+  });
+
+  test("returns a daemon start hint when registration cannot reach the daemon", async () => {
+    const DaemonClientFailingTest = Layer.succeed(DaemonClientService, {
+      registerProject: () => Effect.fail(new DaemonClientError(new Error("connection refused")))
+    });
+
+    const result = await Effect.runPromise(
+      runCli(["register"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonClientFailingTest),
+        Effect.provide(WorkingDirectoryTest)
+      )
+    );
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stderr: "PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start\n",
+      stdout: ""
+    });
   });
 
   test("returns a failed result for invalid bind addresses", async () => {

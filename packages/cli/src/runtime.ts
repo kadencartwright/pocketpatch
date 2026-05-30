@@ -7,7 +7,7 @@ import { StorageServiceLive } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { runCli } from "./index";
+import { DaemonClientServiceLive, WorkingDirectoryServiceLive, runCli } from "./index";
 
 const NoopDaemonServerFactoryLive = Layer.succeed(DaemonServerFactory, {
   bind: () => Effect.void
@@ -22,9 +22,11 @@ const runWithBaseLayers = (
 ) =>
   runCli(args, env).pipe(
     Effect.provide(ConfigServiceLive),
+    Effect.provide(DaemonClientServiceLive),
     Effect.provide(DaemonControlServiceLive),
     Effect.provide(NoopDaemonServerFactoryLive),
-    Effect.provide(NetworkServiceNodeLive)
+    Effect.provide(NetworkServiceNodeLive),
+    Effect.provide(WorkingDirectoryServiceLive)
   );
 
 const runWithStorageLayers = async (
@@ -38,9 +40,11 @@ const runWithStorageLayers = async (
   return Effect.runPromise(
     runCli(args, env).pipe(
       Effect.provide(ConfigServiceLive),
+      Effect.provide(DaemonClientServiceLive),
       Effect.provide(DaemonControlServiceLive),
       Effect.provide(DaemonServerFactoryLive),
       Effect.provide(NetworkServiceNodeLive),
+      Effect.provide(WorkingDirectoryServiceLive),
       Effect.provide(StorageServiceLive),
       Effect.provide(SqliteClient.layer({
         filename: paths.stateDb

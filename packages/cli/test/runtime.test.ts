@@ -58,4 +58,14 @@ describe("CLI runtime", () => {
     expect(result.stdout).toContain("USAGE");
     await expect(exists(paths.stateDb)).resolves.toBe(false);
   });
+
+  test("does not initialize storage for register help", async () => {
+    const env = await makeTempEnv();
+    const paths = await resolveConfigPaths(env);
+    const result = await runPocketPatchCli(["register", "--help"], env);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("USAGE");
+    await expect(exists(paths.stateDb)).resolves.toBe(false);
+  });
 });

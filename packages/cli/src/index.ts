@@ -1,18 +1,81 @@
 import { Args, Command, ValidationError } from "@effect/cli";
-import { NodeContext } from "@effect/platform-node";
+import { FileSystem } from "@effect/platform";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
+import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import type { ConfigEnv } from "@pocketpatch/config";
 import { ConfigService } from "@pocketpatch/config";
-import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
+import { DaemonControlService, DaemonServerFactory, ProjectRegistrationResponseSchema } from "@pocketpatch/daemon";
 import type { DaemonEndpoint } from "@pocketpatch/daemon";
 import { NetworkService } from "@pocketpatch/network";
 import type { LocalAddress } from "@pocketpatch/network";
-import { Cause, Console, Context, Effect, Exit, Layer } from "effect";
+import { Cause, Console, Context, Effect, Exit, Layer, Option } from "effect";
 
 export type CliResult = {
   readonly exitCode: number;
   readonly stderr: string;
   readonly stdout: string;
 };
+
+type ProjectRegistrationResponse = typeof ProjectRegistrationResponseSchema.Type;
+
+export class DaemonClientError extends Error {
+  readonly _tag = "DaemonClientError";
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start");
+    this.cause = cause;
+  }
+}
+
+export class DaemonClientService extends Context.Tag("@pocketpatch/cli/DaemonClientService")<
+  DaemonClientService,
+  {
+    readonly registerProject: (
+      env: ConfigEnv,
+      path: string
+    ) => Effect.Effect<
+      ProjectRegistrationResponse,
+      DaemonClientError,
+      ConfigService | FileSystem.FileSystem | HttpClient.HttpClient
+    >;
+  }
+>() {}
+
+export class WorkingDirectoryService extends Context.Tag("@pocketpatch/cli/WorkingDirectoryService")<
+  WorkingDirectoryService,
+  {
+    readonly cwd: Effect.Effect<string>;
+  }
+>() {}
+
+export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
+  registerProject: (env, path) =>
+    Effect.gen(function*() {
+      const configService = yield* ConfigService;
+      const config = yield* configService.load(env);
+      const request = yield* HttpClientRequest.post(`http://127.0.0.1:${config.network.port}/projects`).pipe(
+        HttpClientRequest.bodyJson({ path })
+      );
+      const response = yield* HttpClient.execute(request);
+
+      if (response.status < 200 || response.status >= 300) {
+        return yield* Effect.fail(new DaemonClientError(`Unexpected status ${response.status}`));
+      }
+
+      return yield* HttpClientResponse.schemaBodyJson(ProjectRegistrationResponseSchema)(response);
+    }).pipe(
+      Effect.mapError((error) =>
+        error instanceof DaemonClientError
+          ? error
+          : new DaemonClientError(error)
+      )
+    )
+});
+
+export const WorkingDirectoryServiceLive = Layer.succeed(WorkingDirectoryService, {
+  cwd: Effect.sync(() => process.cwd())
+});
 
 class CliOutput extends Context.Tag("@pocketpatch/cli/CliOutput")<
   CliOutput,
@@ -165,9 +228,29 @@ const daemonCommand = (env: ConfigEnv) =>
     Command.withSubcommands([daemonPlanCommand(env), daemonStartCommand(env)])
   );
 
+const registerCommand = (env: ConfigEnv) =>
+  Command.make(
+    "register",
+    {
+      path: Args.text({ name: "path" }).pipe(Args.optional)
+    },
+    ({ path }) =>
+      Effect.gen(function*() {
+        const daemonClient = yield* DaemonClientService;
+        const workingDirectory = yield* WorkingDirectoryService;
+        const projectPath = yield* Option.match(path, {
+          onNone: () => workingDirectory.cwd,
+          onSome: (value) => Effect.succeed(value)
+        });
+        const response = yield* daemonClient.registerProject(env, projectPath);
+
+        yield* writeStdout(`${response.reviewUrl}\n`);
+      })
+  );
+
 const pocketPatchCommand = (env: ConfigEnv) =>
   Command.make("pocketpatch").pipe(
-    Command.withSubcommands([configCommand(env), daemonCommand(env)])
+    Command.withSubcommands([configCommand(env), daemonCommand(env), registerCommand(env)])
   );
 
 const runCliCommand = (
@@ -182,7 +265,11 @@ const runCliCommand = (
 export const runCli = (
   args: ReadonlyArray<string>,
   env: ConfigEnv
-): Effect.Effect<CliResult, never, ConfigService | DaemonControlService | DaemonServerFactory | NetworkService> =>
+): Effect.Effect<
+  CliResult,
+  never,
+  ConfigService | DaemonClientService | DaemonControlService | DaemonServerFactory | NetworkService | WorkingDirectoryService
+> =>
   Effect.gen(function*() {
     const stdout: Array<string> = [];
     const stderr: Array<string> = [];
@@ -194,6 +281,7 @@ export const runCli = (
     const exit = yield* Effect.exit(
       runCliCommand(args, env).pipe(
         Effect.provide(output),
+        Effect.provide(NodeHttpClient.layer),
         Effect.provide(NodeContext.layer),
         Console.withConsole(makeCapturingConsole(stdout, stderr))
       )
