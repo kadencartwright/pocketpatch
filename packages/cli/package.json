@@ -21,9 +21,11 @@
     "@effect/cli": "^0.75.1",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
+    "@effect/sql-sqlite-bun": "^0.52.0",
     "@pocketpatch/config": "workspace:*",
     "@pocketpatch/daemon": "workspace:*",
     "@pocketpatch/network": "workspace:*",
+    "@pocketpatch/storage": "workspace:*",
     "effect": "^3.21.2"
   },
   "devDependencies": {
