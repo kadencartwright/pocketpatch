@@ -1,5 +1,5 @@
 import { env } from "$env/dynamic/private";
-import { createCommentAction } from "$lib/comment-action";
+import { createCommentAction, resolveCommentAction } from "$lib/comment-action";
 import { loadProjectDiff } from "$lib/project-diff-load";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -17,6 +17,14 @@ export const load: PageServerLoad = ({ fetch, params }) =>
 export const actions: Actions = {
   comment: async ({ fetch, params, request }) =>
     createCommentAction({
+      daemonBaseUrl:
+        daemonBaseUrl === "" ? "http://127.0.0.1:3217" : daemonBaseUrl,
+      fetch,
+      form: await request.formData(),
+      projectId: params.id,
+    }),
+  resolve: async ({ fetch, params, request }) =>
+    resolveCommentAction({
       daemonBaseUrl:
         daemonBaseUrl === "" ? "http://127.0.0.1:3217" : daemonBaseUrl,
       fetch,

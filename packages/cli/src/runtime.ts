@@ -33,6 +33,7 @@ const NoopStorageServiceLive = Layer.succeed(StorageService, {
   listComments: () => Effect.succeed([]),
   listProjects: Effect.succeed([]),
   registerProject: () => Effect.die("Storage is unavailable for this command"),
+  resolveComment: () => Effect.die("Storage is unavailable for this command"),
 });
 
 const commandNeedsStorage = (args: ReadonlyArray<string>): boolean =>

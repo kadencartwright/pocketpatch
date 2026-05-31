@@ -16,6 +16,7 @@ const comment = (input: Partial<Comment> & Pick<Comment, "id">): Comment => ({
   newLineNumber: 353,
   oldLineNumber: null,
   projectId: 1,
+  resolvedAt: null,
   ...input,
 });
 
@@ -27,6 +28,7 @@ describe("comment formatting", () => {
           body: "This branch should be tested.",
           id: 2,
           newLineNumber: 354,
+          resolvedAt: "2026-05-31T12:03:00.000Z",
         }),
         comment({
           body: "Prefer the Effect helper here.",
@@ -52,7 +54,7 @@ describe("comment formatting", () => {
         "packages/daemon/src/index.ts",
         "- new 353 (comment 1)",
         "  Prefer the Effect helper here.",
-        "- new 354 (comment 2)",
+        "- new 354 (comment 2) [resolved]",
         "  This branch should be tested.",
         "",
       ].join("\n"),

@@ -14,6 +14,7 @@ const StorageTest = Layer.succeed(StorageService, {
       ...input,
       createdAt: "2026-05-29T12:00:00.000Z",
       id: 1,
+      resolvedAt: null,
     }),
   deleteComment: (projectId, commentId) =>
     commentId === 1
@@ -28,9 +29,10 @@ const StorageTest = Layer.succeed(StorageService, {
           path: "/home/k/code/pocketpatch",
         })
       : Effect.fail(new ProjectNotFoundError({ projectId })),
-  listComments: (projectId) =>
+  listComments: (projectId, options) =>
     Effect.succeed([
       {
+        anchorLineContent: "const value = 1;",
         body: "Prefer the Effect helper here.",
         createdAt: "2026-05-29T12:00:00.000Z",
         filePath: "packages/daemon/src/index.ts",
@@ -38,8 +40,39 @@ const StorageTest = Layer.succeed(StorageService, {
         newLineNumber: 353,
         oldLineNumber: null,
         projectId,
+        resolvedAt: null,
       },
+      ...(options?.showResolved === true
+        ? [
+            {
+              anchorLineContent: "const oldValue = 1;",
+              body: "Resolved comment.",
+              createdAt: "2026-05-29T12:01:00.000Z",
+              filePath: "packages/daemon/src/index.ts",
+              id: 2,
+              newLineNumber: 354,
+              oldLineNumber: null,
+              projectId,
+              resolvedAt: "2026-05-29T12:02:00.000Z",
+            },
+          ]
+        : []),
     ]),
+  listProjects: Effect.succeed([]),
+  resolveComment: (projectId, commentId) =>
+    commentId === 1
+      ? Effect.succeed({
+          anchorLineContent: "const value = 1;",
+          body: "Prefer the Effect helper here.",
+          createdAt: "2026-05-29T12:00:00.000Z",
+          filePath: "packages/daemon/src/index.ts",
+          id: 1,
+          newLineNumber: 353,
+          oldLineNumber: null,
+          projectId,
+          resolvedAt: "2026-05-29T12:02:00.000Z",
+        })
+      : Effect.fail(new CommentNotFoundError({ commentId, projectId })),
   registerProject: (path) =>
     Effect.succeed({
       createdAt: "2026-05-29T12:00:00.000Z",
@@ -381,6 +414,7 @@ describe("daemon HTTP handler", () => {
     await expect(response.json()).resolves.toEqual({
       comments: [
         {
+          anchorLineContent: "const value = 1;",
           body: "Prefer the Effect helper here.",
           createdAt: "2026-05-29T12:00:00.000Z",
           filePath: "packages/daemon/src/index.ts",
@@ -388,8 +422,36 @@ describe("daemon HTTP handler", () => {
           newLineNumber: 353,
           oldLineNumber: null,
           projectId: 1,
+          resolvedAt: null,
         },
       ],
+    });
+  });
+
+  test("DaemonHttpService lists resolved project comments when requested", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request(
+            "http://127.0.0.1:3217/projects/1/comments?showResolved=true",
+          ),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body.comments).toHaveLength(2);
+    expect(body.comments[1]).toMatchObject({
+      id: 2,
+      resolvedAt: "2026-05-29T12:02:00.000Z",
     });
   });
 
@@ -401,6 +463,7 @@ describe("daemon HTTP handler", () => {
         return yield* service.handle(
           new Request("http://127.0.0.1:3217/projects/1/comments", {
             body: JSON.stringify({
+              anchorLineContent: "const value = 1;",
               body: "Prefer the Effect helper here.",
               filePath: "packages/daemon/src/index.ts",
               newLineNumber: 353,
@@ -422,6 +485,7 @@ describe("daemon HTTP handler", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       comment: {
+        anchorLineContent: "const value = 1;",
         body: "Prefer the Effect helper here.",
         createdAt: "2026-05-29T12:00:00.000Z",
         filePath: "packages/daemon/src/index.ts",
@@ -429,6 +493,7 @@ describe("daemon HTTP handler", () => {
         newLineNumber: 353,
         oldLineNumber: null,
         projectId: 1,
+        resolvedAt: null,
       },
     });
   });
@@ -441,6 +506,7 @@ describe("daemon HTTP handler", () => {
         return yield* service.handle(
           new Request("http://127.0.0.1:3217/projects/1/comments", {
             body: JSON.stringify({
+              anchorLineContent: "const value = 1;",
               body: "",
               filePath: "packages/daemon/src/index.ts",
               newLineNumber: 353,
@@ -460,6 +526,39 @@ describe("daemon HTTP handler", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  test("DaemonHttpService resolves project comments", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments/1/resolve", {
+            method: "POST",
+          }),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      comment: {
+        anchorLineContent: "const value = 1;",
+        body: "Prefer the Effect helper here.",
+        createdAt: "2026-05-29T12:00:00.000Z",
+        filePath: "packages/daemon/src/index.ts",
+        id: 1,
+        newLineNumber: 353,
+        oldLineNumber: null,
+        projectId: 1,
+        resolvedAt: "2026-05-29T12:02:00.000Z",
+      },
+    });
   });
 
   test("DaemonHttpService deletes project comments", async () => {

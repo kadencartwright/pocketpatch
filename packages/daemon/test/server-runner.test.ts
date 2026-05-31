@@ -53,6 +53,7 @@ const StorageTest = Layer.succeed(StorageService, {
   getProject: (projectId) =>
     Effect.fail(new ProjectNotFoundError({ projectId })),
   listComments: () => Effect.die("unused"),
+  listProjects: Effect.die("unused"),
   registerProject: (path) =>
     Effect.succeed({
       createdAt: "2026-05-29T12:00:00.000Z",
@@ -60,6 +61,7 @@ const StorageTest = Layer.succeed(StorageService, {
       lastSeenAt: "2026-05-29T12:00:00.000Z",
       path,
     }),
+  resolveComment: () => Effect.die("unused"),
 });
 
 const GitTest = Layer.succeed(GitService, {

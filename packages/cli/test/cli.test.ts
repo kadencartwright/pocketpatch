@@ -4,7 +4,11 @@ import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
 import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
 import type { LocalAddress } from "@pocketpatch/network";
 import { NetworkService } from "@pocketpatch/network";
-import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
+import {
+  CommentNotFoundError,
+  ProjectNotFoundError,
+  StorageService,
+} from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import {
   DaemonClientError,
@@ -111,10 +115,11 @@ const storageTestService = {
           path: "/home/k/code/pocketpatch",
         })
       : Effect.fail(new ProjectNotFoundError({ projectId })),
-  listComments: (projectId) =>
+  listComments: (projectId, options) =>
     projectId === 1
       ? Effect.succeed([
           {
+            anchorLineContent: "const value = 1;",
             body: "Prefer the Effect helper here.",
             createdAt: "2026-05-31T12:00:00.000Z",
             filePath: "packages/daemon/src/index.ts",
@@ -122,7 +127,23 @@ const storageTestService = {
             newLineNumber: 353,
             oldLineNumber: null,
             projectId,
+            resolvedAt: null,
           },
+          ...(options?.showResolved === true
+            ? [
+                {
+                  anchorLineContent: "const oldValue = 1;",
+                  body: "Already handled.",
+                  createdAt: "2026-05-31T12:01:00.000Z",
+                  filePath: "packages/daemon/src/index.ts",
+                  id: 2,
+                  newLineNumber: 354,
+                  oldLineNumber: null,
+                  projectId,
+                  resolvedAt: "2026-05-31T12:02:00.000Z",
+                },
+              ]
+            : []),
         ])
       : Effect.succeed([]),
   listProjects: Effect.succeed([
@@ -134,6 +155,20 @@ const storageTestService = {
     },
   ]),
   registerProject: () => Effect.die("unused"),
+  resolveComment: (projectId, commentId) =>
+    commentId === 1
+      ? Effect.succeed({
+          anchorLineContent: "const value = 1;",
+          body: "Prefer the Effect helper here.",
+          createdAt: "2026-05-31T12:00:00.000Z",
+          filePath: "packages/daemon/src/index.ts",
+          id: commentId,
+          newLineNumber: 353,
+          oldLineNumber: null,
+          projectId,
+          resolvedAt: "2026-05-31T12:02:00.000Z",
+        })
+      : Effect.fail(new CommentNotFoundError({ commentId, projectId })),
 };
 
 const StorageTest = Layer.succeed(StorageService, storageTestService);
@@ -392,6 +427,18 @@ describe("runCli", () => {
     });
   });
 
+  test("prints resolved comments when requested", async () => {
+    const result = await runTestCli([
+      "comments",
+      "--project",
+      "1",
+      "--show-resolved",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("- new 354 (comment 2) [resolved]");
+  });
+
   test("prints comments for the project containing the current working directory", async () => {
     const result = await Effect.runPromise(
       runCli(["comments"], env).pipe(
@@ -438,6 +485,16 @@ describe("runCli", () => {
       stderr:
         "No registered PocketPatch project contains /home/k/code/pocketpatch. Run pocketpatch register from the project first, or pass --project.\n",
       stdout: "",
+    });
+  });
+
+  test("resolves comments for the project containing the current working directory", async () => {
+    const result = await runTestCli(["comments", "resolve", "1"]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "Resolved comment 1\n",
     });
   });
 

@@ -74,6 +74,7 @@ export const ProjectDiffResponseSchema = Schema.Struct({
 });
 
 export const CommentSchema = Schema.Struct({
+  anchorLineContent: Schema.NullOr(Schema.String),
   body: Schema.String,
   createdAt: Schema.String,
   filePath: Schema.String,
@@ -81,9 +82,17 @@ export const CommentSchema = Schema.Struct({
   newLineNumber: Schema.NullOr(Schema.Number),
   oldLineNumber: Schema.NullOr(Schema.Number),
   projectId: Schema.Number,
+  resolvedAt: Schema.NullOr(Schema.String),
+});
+
+export const ListCommentsRequestSchema = Schema.Struct({
+  showResolved: Schema.optionalWith(Schema.BooleanFromString, {
+    default: () => false,
+  }),
 });
 
 export const CreateCommentRequestSchema = Schema.Struct({
+  anchorLineContent: Schema.NullOr(Schema.String),
   body: Schema.String.pipe(Schema.minLength(1)),
   filePath: Schema.String.pipe(Schema.minLength(1)),
   newLineNumber: Schema.NullOr(Schema.Number),
@@ -203,6 +212,21 @@ const deleteCommentOrHttpNotFound = (
       ),
     );
 
+const resolveCommentOrHttpNotFound = (
+  storage: StorageServiceShape,
+  projectId: number,
+  commentId: number,
+) =>
+  storage
+    .resolveComment(projectId, commentId)
+    .pipe(
+      Effect.catchAll((error) =>
+        error instanceof CommentNotFoundError
+          ? Effect.fail(new CommentHttpNotFound({ commentId, projectId }))
+          : Effect.die(error),
+      ),
+    );
+
 const originFromServerRequest = (
   request: HttpServerRequest.HttpServerRequest,
 ): string => {
@@ -273,6 +297,7 @@ export class ProjectsApi extends HttpApiGroup.make("projects")
     HttpApiEndpoint.get(
       "listComments",
     )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/comments`
+      .setPayload(ListCommentsRequestSchema)
       .addSuccess(CommentListResponseSchema)
       .addError(ProjectHttpNotFound),
   )
@@ -283,6 +308,14 @@ export class ProjectsApi extends HttpApiGroup.make("projects")
       .setPayload(CreateCommentRequestSchema)
       .addSuccess(CommentResponseSchema, { status: 201 })
       .addError(ProjectHttpNotFound),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "resolveComment",
+    )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/comments/${HttpApiSchema.param("commentId", Schema.NumberFromString)}/resolve`
+      .addSuccess(CommentResponseSchema)
+      .addError(ProjectHttpNotFound)
+      .addError(CommentHttpNotFound),
   )
   .add(
     HttpApiEndpoint.del(
@@ -359,13 +392,15 @@ const ProjectsApiLive = HttpApiBuilder.group(
           return makeProjectDiffResponse(project, snapshot);
         }),
       )
-      .handle("listComments", ({ path }) =>
+      .handle("listComments", ({ path, payload }) =>
         Effect.gen(function* () {
           const storage = yield* StorageService;
 
           yield* getProjectOrHttpNotFound(storage, path.id);
           const comments = yield* storage
-            .listComments(path.id)
+            .listComments(path.id, {
+              showResolved: payload.showResolved,
+            })
             .pipe(Effect.orDie);
 
           return makeCommentListResponse(comments);
@@ -382,6 +417,20 @@ const ProjectsApiLive = HttpApiBuilder.group(
               projectId: path.id,
             })
             .pipe(Effect.orDie);
+
+          return makeCommentResponse(comment);
+        }),
+      )
+      .handle("resolveComment", ({ path }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+
+          yield* getProjectOrHttpNotFound(storage, path.id);
+          const comment = yield* resolveCommentOrHttpNotFound(
+            storage,
+            path.id,
+            path.commentId,
+          );
 
           return makeCommentResponse(comment);
         }),

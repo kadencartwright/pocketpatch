@@ -54,6 +54,7 @@ export type FileDiff = ChangedFile & {
 };
 
 export type ProjectComment = {
+  readonly anchorLineContent: string | null;
   readonly body: string;
   readonly createdAt: string;
   readonly filePath: string;
@@ -61,9 +62,11 @@ export type ProjectComment = {
   readonly newLineNumber: number | null;
   readonly oldLineNumber: number | null;
   readonly projectId: number;
+  readonly resolvedAt: string | null;
 };
 
 export type CreateProjectCommentInput = {
+  readonly anchorLineContent: string | null;
   readonly body: string;
   readonly filePath: string;
   readonly newLineNumber: number | null;
@@ -96,10 +99,15 @@ export type ProjectCommentsOptions = {
   readonly daemonBaseUrl: string;
   readonly fetch: typeof fetch;
   readonly projectId: string;
+  readonly showResolved?: boolean;
 };
 
 export type CreateProjectCommentOptions = ProjectCommentsOptions & {
   readonly comment: CreateProjectCommentInput;
+};
+
+export type ResolveProjectCommentOptions = ProjectCommentsOptions & {
+  readonly commentId: number;
 };
 
 export const buildProjectDiffUrl = (
@@ -110,8 +118,26 @@ export const buildProjectDiffUrl = (
 export const buildProjectCommentsUrl = (
   daemonBaseUrl: string,
   projectId: string,
+  options: Pick<ProjectCommentsOptions, "showResolved"> = {},
+): string => {
+  const url = new URL(`/projects/${projectId}/comments`, daemonBaseUrl);
+
+  if (options.showResolved === true) {
+    url.searchParams.set("showResolved", "true");
+  }
+
+  return url.toString();
+};
+
+export const buildResolveProjectCommentUrl = (
+  daemonBaseUrl: string,
+  projectId: string,
+  commentId: number,
 ): string =>
-  new URL(`/projects/${projectId}/comments`, daemonBaseUrl).toString();
+  new URL(
+    `/projects/${projectId}/comments/${commentId}/resolve`,
+    daemonBaseUrl,
+  ).toString();
 
 export const fetchProjectDiff = async ({
   daemonBaseUrl,
@@ -131,9 +157,12 @@ export const fetchProjectComments = async ({
   daemonBaseUrl,
   fetch,
   projectId,
+  showResolved,
 }: ProjectCommentsOptions): Promise<ProjectCommentsResponse> => {
   const response = await fetch(
-    buildProjectCommentsUrl(daemonBaseUrl, projectId),
+    buildProjectCommentsUrl(daemonBaseUrl, projectId, {
+      showResolved,
+    }),
   );
 
   if (!response.ok) {
@@ -141,6 +170,26 @@ export const fetchProjectComments = async ({
   }
 
   return (await response.json()) as ProjectCommentsResponse;
+};
+
+export const resolveProjectComment = async ({
+  commentId,
+  daemonBaseUrl,
+  fetch,
+  projectId,
+}: ResolveProjectCommentOptions): Promise<ProjectCommentResponse> => {
+  const response = await fetch(
+    buildResolveProjectCommentUrl(daemonBaseUrl, projectId, commentId),
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to resolve project comment: ${response.status}`);
+  }
+
+  return (await response.json()) as ProjectCommentResponse;
 };
 
 export const createProjectComment = async ({

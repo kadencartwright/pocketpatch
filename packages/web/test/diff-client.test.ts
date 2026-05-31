@@ -6,6 +6,7 @@ import {
   createProjectComment,
   fetchProjectComments,
   fetchProjectDiff,
+  resolveProjectComment,
 } from "../src/lib/diff-client";
 
 const sampleDiff = {
@@ -79,6 +80,11 @@ describe("diff client", () => {
     expect(buildProjectCommentsUrl("http://127.0.0.1:3217", "42")).toBe(
       "http://127.0.0.1:3217/projects/42/comments",
     );
+    expect(
+      buildProjectCommentsUrl("http://127.0.0.1:3217", "42", {
+        showResolved: true,
+      }),
+    ).toBe("http://127.0.0.1:3217/projects/42/comments?showResolved=true");
   });
 
   test("fetches project diffs from the daemon", async () => {
@@ -115,6 +121,7 @@ describe("diff client", () => {
           JSON.stringify({
             comments: [
               {
+                anchorLineContent: "export const value = 2;",
                 body: "Prefer the Effect helper here.",
                 createdAt: "2026-05-29T12:00:00.000Z",
                 filePath: "src/example.ts",
@@ -122,6 +129,7 @@ describe("diff client", () => {
                 newLineNumber: 1,
                 oldLineNumber: null,
                 projectId: 1,
+                resolvedAt: null,
               },
             ],
           }),
@@ -137,6 +145,7 @@ describe("diff client", () => {
     const requests: Array<{ body: unknown; input: RequestInfo | URL }> = [];
     const response = await createProjectComment({
       comment: {
+        anchorLineContent: "export const value = 2;",
         body: "Prefer the Effect helper here.",
         filePath: "src/example.ts",
         newLineNumber: 1,
@@ -152,6 +161,7 @@ describe("diff client", () => {
         return new Response(
           JSON.stringify({
             comment: {
+              anchorLineContent: "export const value = 2;",
               body: "Prefer the Effect helper here.",
               createdAt: "2026-05-29T12:00:00.000Z",
               filePath: "src/example.ts",
@@ -159,6 +169,7 @@ describe("diff client", () => {
               newLineNumber: 1,
               oldLineNumber: null,
               projectId: 1,
+              resolvedAt: null,
             },
           }),
         );
@@ -170,6 +181,7 @@ describe("diff client", () => {
       {
         body: {
           body: "Prefer the Effect helper here.",
+          anchorLineContent: "export const value = 2;",
           filePath: "src/example.ts",
           newLineNumber: 1,
           oldLineNumber: null,
@@ -178,6 +190,40 @@ describe("diff client", () => {
       },
     ]);
     expect(response.comment.id).toBe(1);
+  });
+
+  test("resolves project comments through the daemon", async () => {
+    const requests: Array<RequestInfo | URL> = [];
+    const response = await resolveProjectComment({
+      commentId: 1,
+      daemonBaseUrl: "http://daemon.test",
+      fetch: async (input, init) => {
+        requests.push(input);
+        expect(init?.method).toBe("POST");
+
+        return new Response(
+          JSON.stringify({
+            comment: {
+              anchorLineContent: "export const value = 2;",
+              body: "Prefer the Effect helper here.",
+              createdAt: "2026-05-29T12:00:00.000Z",
+              filePath: "src/example.ts",
+              id: 1,
+              newLineNumber: 1,
+              oldLineNumber: null,
+              projectId: 1,
+              resolvedAt: "2026-05-29T12:01:00.000Z",
+            },
+          }),
+        );
+      },
+      projectId: "1",
+    });
+
+    expect(requests).toEqual([
+      "http://daemon.test/projects/1/comments/1/resolve",
+    ]);
+    expect(response.comment.resolvedAt).toBe("2026-05-29T12:01:00.000Z");
   });
 
   test("creates a compact view model for the read-only diff page", () => {

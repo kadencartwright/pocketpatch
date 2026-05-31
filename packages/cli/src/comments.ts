@@ -22,6 +22,9 @@ const indentBody = (body: string): string =>
     .map((line) => `  ${line}`)
     .join("\n");
 
+const statusLabel = (comment: Comment): string =>
+  comment.resolvedAt === null ? "" : " [resolved]";
+
 export const formatProjectComments = (
   project: Project,
   comments: ReadonlyArray<Comment>,
@@ -57,7 +60,9 @@ export const formatProjectComments = (
     lines.push("", filePath);
 
     for (const comment of fileComments) {
-      lines.push(`- ${lineLabel(comment)} (comment ${comment.id})`);
+      lines.push(
+        `- ${lineLabel(comment)} (comment ${comment.id})${statusLabel(comment)}`,
+      );
       lines.push(indentBody(comment.body));
     }
   }

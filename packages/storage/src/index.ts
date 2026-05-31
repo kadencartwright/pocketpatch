@@ -10,6 +10,7 @@ export type Project = {
 };
 
 export type Comment = {
+  readonly anchorLineContent: string | null;
   readonly body: string;
   readonly createdAt: string;
   readonly filePath: string;
@@ -17,9 +18,11 @@ export type Comment = {
   readonly newLineNumber: number | null;
   readonly oldLineNumber: number | null;
   readonly projectId: number;
+  readonly resolvedAt: string | null;
 };
 
 export type CreateCommentInput = {
+  readonly anchorLineContent: string | null;
   readonly body: string;
   readonly filePath: string;
   readonly newLineNumber: number | null;
@@ -35,6 +38,7 @@ type ProjectRow = {
 };
 
 type CommentRow = {
+  readonly anchor_line_content: string | null;
   readonly body: string;
   readonly created_at: string;
   readonly file_path: string;
@@ -42,6 +46,11 @@ type CommentRow = {
   readonly new_line_number: number | null;
   readonly old_line_number: number | null;
   readonly project_id: number;
+  readonly resolved_at: string | null;
+};
+
+export type ListCommentsOptions = {
+  readonly showResolved?: boolean;
 };
 
 const toProject = (row: ProjectRow): Project => ({
@@ -52,6 +61,7 @@ const toProject = (row: ProjectRow): Project => ({
 });
 
 const toComment = (row: CommentRow): Comment => ({
+  anchorLineContent: row.anchor_line_content,
   body: row.body,
   createdAt: row.created_at,
   filePath: row.file_path,
@@ -59,6 +69,7 @@ const toComment = (row: CommentRow): Comment => ({
   newLineNumber: row.new_line_number,
   oldLineNumber: row.old_line_number,
   projectId: row.project_id,
+  resolvedAt: row.resolved_at,
 });
 
 export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundError>()(
@@ -108,9 +119,41 @@ export const migrateComments = (
       new_line_number INTEGER,
       body TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      resolved_at TEXT,
+      anchor_line_content TEXT,
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
   `);
+
+type TableColumnRow = {
+  readonly name: string;
+};
+
+const ensureCommentsColumn = (
+  sql: SqlClient.SqlClient,
+  name: string,
+  definition: string,
+): Effect.Effect<void, SqlError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<TableColumnRow>`PRAGMA table_info(comments)`;
+    const exists = rows.some((row) => row.name === name);
+
+    if (!exists) {
+      yield* sql.unsafe(`ALTER TABLE comments ADD COLUMN ${definition}`);
+    }
+  });
+
+export const migrateCommentMetadata = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError> =>
+  Effect.gen(function* () {
+    yield* ensureCommentsColumn(sql, "resolved_at", "resolved_at TEXT");
+    yield* ensureCommentsColumn(
+      sql,
+      "anchor_line_content",
+      "anchor_line_content TEXT",
+    );
+  });
 
 export const registerProject = (
   sql: SqlClient.SqlClient,
@@ -149,6 +192,7 @@ export const createComment = (
         old_line_number,
         new_line_number,
         body,
+        anchor_line_content,
         created_at
       )
       VALUES (
@@ -157,6 +201,7 @@ export const createComment = (
         ${input.oldLineNumber},
         ${input.newLineNumber},
         ${input.body},
+        ${input.anchorLineContent},
         strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
       )
       RETURNING
@@ -166,7 +211,9 @@ export const createComment = (
         old_line_number,
         new_line_number,
         body,
-        created_at
+        created_at,
+        resolved_at,
+        anchor_line_content
     `;
     const row = rows[0];
 
@@ -180,6 +227,7 @@ export const createComment = (
 export const listComments = (
   sql: SqlClient.SqlClient,
   projectId: number,
+  options: ListCommentsOptions = {},
 ): Effect.Effect<ReadonlyArray<Comment>, SqlError> =>
   Effect.map(
     sql<CommentRow>`
@@ -190,13 +238,52 @@ export const listComments = (
         old_line_number,
         new_line_number,
         body,
-        created_at
+        created_at,
+        resolved_at,
+        anchor_line_content
       FROM comments
       WHERE project_id = ${projectId}
+        AND (${options.showResolved === true} OR resolved_at IS NULL)
       ORDER BY id ASC
     `,
     (rows) => rows.map(toComment),
   );
+
+export const resolveComment = (
+  sql: SqlClient.SqlClient,
+  projectId: number,
+  commentId: number,
+): Effect.Effect<Comment, CommentNotFoundError | SqlError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<CommentRow>`
+      UPDATE comments
+      SET resolved_at = COALESCE(
+        resolved_at,
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      )
+      WHERE project_id = ${projectId}
+        AND id = ${commentId}
+      RETURNING
+        id,
+        project_id,
+        file_path,
+        old_line_number,
+        new_line_number,
+        body,
+        created_at,
+        resolved_at,
+        anchor_line_content
+    `;
+    const row = rows[0];
+
+    if (row === undefined) {
+      return yield* Effect.fail(
+        new CommentNotFoundError({ commentId, projectId }),
+      );
+    }
+
+    return toComment(row);
+  });
 
 export const deleteComment = (
   sql: SqlClient.SqlClient,
@@ -268,10 +355,15 @@ export class StorageService extends Context.Tag(
     readonly listProjects: Effect.Effect<ReadonlyArray<Project>, SqlError>;
     readonly listComments: (
       projectId: number,
+      options?: ListCommentsOptions,
     ) => Effect.Effect<ReadonlyArray<Comment>, SqlError>;
     readonly registerProject: (
       path: string,
     ) => Effect.Effect<Project, SqlError>;
+    readonly resolveComment: (
+      projectId: number,
+      commentId: number,
+    ) => Effect.Effect<Comment, CommentNotFoundError | SqlError>;
   }
 >() {}
 
@@ -282,6 +374,7 @@ export const StorageServiceLive = Layer.effect(
 
     yield* migrateProjects(sql);
     yield* migrateComments(sql);
+    yield* migrateCommentMetadata(sql);
 
     return {
       createComment: (input) => createComment(sql, input),
@@ -289,8 +382,11 @@ export const StorageServiceLive = Layer.effect(
         deleteComment(sql, projectId, commentId),
       getProject: (projectId) => getProject(sql, projectId),
       listProjects: listProjects(sql),
-      listComments: (projectId) => listComments(sql, projectId),
+      listComments: (projectId, options) =>
+        listComments(sql, projectId, options),
       registerProject: (path) => registerProject(sql, path),
+      resolveComment: (projectId, commentId) =>
+        resolveComment(sql, projectId, commentId),
     };
   }),
 );

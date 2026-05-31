@@ -16,6 +16,7 @@ import {
 } from "@pocketpatch/daemon";
 import type { LocalAddress } from "@pocketpatch/network";
 import { NetworkService } from "@pocketpatch/network";
+import type { Project } from "@pocketpatch/storage";
 import { StorageService } from "@pocketpatch/storage";
 import {
   Cause,
@@ -148,6 +149,33 @@ const formatCause = (cause: Cause.Cause<unknown>): string => {
 };
 
 const optionalProjectId = Options.integer("project").pipe(Options.optional);
+const showResolvedOption = Options.boolean("show-resolved", {
+  ifPresent: true,
+});
+
+const resolveProjectContext = (
+  project: Option.Option<number>,
+): Effect.Effect<Project, unknown, StorageService | WorkingDirectoryService> =>
+  Effect.gen(function* () {
+    const storage = yield* StorageService;
+    const workingDirectory = yield* WorkingDirectoryService;
+
+    return yield* Option.match(project, {
+      onNone: () =>
+        Effect.gen(function* () {
+          const cwd = yield* workingDirectory.cwd;
+          const projects = yield* storage.listProjects;
+          const inferredProject = resolveProjectForCwd(projects, cwd);
+
+          if (inferredProject instanceof ProjectContextNotFoundError) {
+            return yield* Effect.fail(inferredProject);
+          }
+
+          return inferredProject;
+        }),
+      onSome: (projectId) => storage.getProject(projectId),
+    });
+  });
 
 const consoleLine = (args: ReadonlyArray<unknown>): string =>
   `${args.map(String).join(" ")}\n`;
@@ -276,30 +304,36 @@ const commentsCommand = Command.make(
   "comments",
   {
     project: optionalProjectId,
+    showResolved: showResolvedOption,
   },
-  ({ project }) =>
+  ({ project, showResolved }) =>
     Effect.gen(function* () {
       const storage = yield* StorageService;
-      const workingDirectory = yield* WorkingDirectoryService;
-      const resolvedProject = yield* Option.match(project, {
-        onNone: () =>
-          Effect.gen(function* () {
-            const cwd = yield* workingDirectory.cwd;
-            const projects = yield* storage.listProjects;
-            const inferredProject = resolveProjectForCwd(projects, cwd);
-
-            if (inferredProject instanceof ProjectContextNotFoundError) {
-              return yield* Effect.fail(inferredProject);
-            }
-
-            return inferredProject;
-          }),
-        onSome: (projectId) => storage.getProject(projectId),
+      const resolvedProject = yield* resolveProjectContext(project);
+      const comments = yield* storage.listComments(resolvedProject.id, {
+        showResolved,
       });
-      const comments = yield* storage.listComments(resolvedProject.id);
 
       yield* writeStdout(formatProjectComments(resolvedProject, comments));
     }),
+).pipe(
+  Command.withSubcommands([
+    Command.make(
+      "resolve",
+      {
+        commentId: Args.integer({ name: "comment-id" }),
+        project: optionalProjectId,
+      },
+      ({ commentId, project }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+          const resolvedProject = yield* resolveProjectContext(project);
+
+          yield* storage.resolveComment(resolvedProject.id, commentId);
+          yield* writeStdout(`Resolved comment ${commentId}\n`);
+        }),
+    ),
+  ]),
 );
 
 const pocketPatchCommand = (env: ConfigEnv) =>
