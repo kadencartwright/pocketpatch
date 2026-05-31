@@ -20,14 +20,14 @@ const toProject = (row: ProjectRow): Project => ({
   createdAt: row.created_at,
   id: row.id,
   lastSeenAt: row.last_seen_at,
-  path: row.path
+  path: row.path,
 });
 
 export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundError>()(
   "ProjectNotFoundError",
   {
-    projectId: Schema.Number
-  }
+    projectId: Schema.Number,
+  },
 ) {
   override get message(): string {
     return `Project ${this.projectId} was not found`;
@@ -35,7 +35,7 @@ export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundErro
 }
 
 export const migrateProjects = (
-  sql: SqlClient.SqlClient
+  sql: SqlClient.SqlClient,
 ): Effect.Effect<void, SqlError> =>
   Effect.asVoid(sql`
     CREATE TABLE IF NOT EXISTS projects (
@@ -48,9 +48,9 @@ export const migrateProjects = (
 
 export const registerProject = (
   sql: SqlClient.SqlClient,
-  path: string
+  path: string,
 ): Effect.Effect<Project, SqlError> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const rows = yield* sql<ProjectRow>`
       INSERT INTO projects (path, created_at, last_seen_at)
       VALUES (
@@ -73,9 +73,9 @@ export const registerProject = (
 
 export const getProject = (
   sql: SqlClient.SqlClient,
-  projectId: number
+  projectId: number,
 ): Effect.Effect<Project, ProjectNotFoundError | SqlError> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const rows = yield* sql<ProjectRow>`
       SELECT id, path, created_at, last_seen_at
       FROM projects
@@ -91,24 +91,30 @@ export const getProject = (
     return toProject(row);
   });
 
-export class StorageService extends Context.Tag("@pocketpatch/storage/StorageService")<
+export class StorageService extends Context.Tag(
+  "@pocketpatch/storage/StorageService",
+)<
   StorageService,
   {
-    readonly getProject: (projectId: number) => Effect.Effect<Project, ProjectNotFoundError | SqlError>;
-    readonly registerProject: (path: string) => Effect.Effect<Project, SqlError>;
+    readonly getProject: (
+      projectId: number,
+    ) => Effect.Effect<Project, ProjectNotFoundError | SqlError>;
+    readonly registerProject: (
+      path: string,
+    ) => Effect.Effect<Project, SqlError>;
   }
 >() {}
 
 export const StorageServiceLive = Layer.effect(
   StorageService,
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
     yield* migrateProjects(sql);
 
     return {
       getProject: (projectId) => getProject(sql, projectId),
-      registerProject: (path) => registerProject(sql, path)
+      registerProject: (path) => registerProject(sql, path),
     };
-  })
+  }),
 );

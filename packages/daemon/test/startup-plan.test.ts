@@ -1,11 +1,11 @@
+import { describe, expect, test } from "bun:test";
 import { ConfigService } from "@pocketpatch/config";
 import {
   AddressSource,
   BindAddressNotFoundError,
   NetworkService,
-  NetworkServiceLive
+  NetworkServiceLive,
 } from "@pocketpatch/network";
-import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Either, Exit, Layer } from "effect";
 import * as Daemon from "../src/index";
 
@@ -15,43 +15,44 @@ describe("daemon startup planning", () => {
       version: 1 as const,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3217
-      }
+        port: 3217,
+      },
     };
     const ConfigTest = Layer.succeed(ConfigService, {
       load: () => Effect.succeed(config),
       paths: () => Effect.die("unused"),
       save: () => Effect.die("unused"),
-      setBindAddress: () => Effect.die("unused")
+      setBindAddress: () => Effect.die("unused"),
     });
     const NetworkTest = Layer.succeed(NetworkService, {
-      computeListenAddresses: () => Effect.succeed(["127.0.0.1", "::1", "100.64.12.34"]),
+      computeListenAddresses: () =>
+        Effect.succeed(["127.0.0.1", "::1", "100.64.12.34"]),
       listLocalAddresses: Effect.die("unused"),
-      validateBindAddress: () => Effect.die("unused")
+      validateBindAddress: () => Effect.die("unused"),
     });
 
     const plan = await Effect.runPromise(
       Daemon.planDaemonStartup({ HOME: "/home/k" }).pipe(
         Effect.provide(ConfigTest),
-        Effect.provide(NetworkTest)
-      )
+        Effect.provide(NetworkTest),
+      ),
     );
 
     expect(plan).toEqual({
       endpoints: [
         {
           address: "127.0.0.1",
-          port: 3217
+          port: 3217,
         },
         {
           address: "::1",
-          port: 3217
+          port: 3217,
         },
         {
           address: "100.64.12.34",
-          port: 3217
-        }
-      ]
+          port: 3217,
+        },
+      ],
     });
   });
 
@@ -60,30 +61,30 @@ describe("daemon startup planning", () => {
       version: 1 as const,
       network: {
         bindAddress: "100.64.99.99",
-        port: 3217
-      }
+        port: 3217,
+      },
     };
     const error = new BindAddressNotFoundError({
       address: "100.64.99.99",
-      availableAddresses: []
+      availableAddresses: [],
     });
     const ConfigTest = Layer.succeed(ConfigService, {
       load: () => Effect.succeed(config),
       paths: () => Effect.die("unused"),
       save: () => Effect.die("unused"),
-      setBindAddress: () => Effect.die("unused")
+      setBindAddress: () => Effect.die("unused"),
     });
     const NetworkTest = Layer.succeed(NetworkService, {
       computeListenAddresses: () => Effect.fail(error),
       listLocalAddresses: Effect.die("unused"),
-      validateBindAddress: () => Effect.die("unused")
+      validateBindAddress: () => Effect.die("unused"),
     });
 
     const exit = await Effect.runPromiseExit(
       Daemon.planDaemonStartup({ HOME: "/home/k" }).pipe(
         Effect.provide(ConfigTest),
-        Effect.provide(NetworkTest)
-      )
+        Effect.provide(NetworkTest),
+      ),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -104,12 +105,12 @@ describe("daemon startup planning", () => {
           version: 1 as const,
           network: {
             bindAddress: "100.64.12.34",
-            port: 3218
-          }
+            port: 3218,
+          },
         }),
       paths: () => Effect.die("unused"),
       save: () => Effect.die("unused"),
-      setBindAddress: () => Effect.die("unused")
+      setBindAddress: () => Effect.die("unused"),
     });
     const addressSource = Layer.succeed(AddressSource, {
       list: () => [
@@ -117,44 +118,44 @@ describe("daemon startup planning", () => {
           address: "127.0.0.1",
           family: "IPv4" as const,
           interfaceName: "lo",
-          internal: true
+          internal: true,
         },
         {
           address: "::1",
           family: "IPv6" as const,
           interfaceName: "lo",
-          internal: true
+          internal: true,
         },
         {
           address: "100.64.12.34",
           family: "IPv4" as const,
           interfaceName: "tailscale0",
-          internal: false
-        }
-      ]
+          internal: false,
+        },
+      ],
     });
 
     const plan = await Effect.runPromise(
       Daemon.planDaemonStartup({ HOME: "/home/k" }).pipe(
         Effect.provide(configLayer),
         Effect.provide(NetworkServiceLive),
-        Effect.provide(addressSource)
-      )
+        Effect.provide(addressSource),
+      ),
     );
 
     expect(plan.endpoints).toEqual([
       {
         address: "127.0.0.1",
-        port: 3218
+        port: 3218,
       },
       {
         address: "::1",
-        port: 3218
+        port: 3218,
       },
       {
         address: "100.64.12.34",
-        port: 3218
-      }
+        port: 3218,
+      },
     ]);
   });
 });

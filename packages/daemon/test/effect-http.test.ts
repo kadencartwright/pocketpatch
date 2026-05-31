@@ -1,7 +1,12 @@
-import { HttpClient, HttpClientRequest, HttpClientResponse, OpenApi } from "@effect/platform";
+import { describe, expect, test } from "bun:test";
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+  OpenApi,
+} from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
-import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import * as Daemon from "../src/index";
 
@@ -9,19 +14,19 @@ const StorageTest = Layer.succeed(StorageService, {
   getProject: (projectId) =>
     projectId === 1
       ? Effect.succeed({
-        createdAt: "2026-05-29T12:00:00.000Z",
-        id: 1,
-        lastSeenAt: "2026-05-29T12:00:00.000Z",
-        path: "/home/k/code/pocketpatch"
-      })
+          createdAt: "2026-05-29T12:00:00.000Z",
+          id: 1,
+          lastSeenAt: "2026-05-29T12:00:00.000Z",
+          path: "/home/k/code/pocketpatch",
+        })
       : Effect.fail(new ProjectNotFoundError({ projectId })),
   registerProject: (path) =>
     Effect.succeed({
       createdAt: "2026-05-29T12:00:00.000Z",
       id: 1,
       lastSeenAt: "2026-05-29T12:00:00.000Z",
-      path
-    })
+      path,
+    }),
 });
 
 describe("daemon Effect HTTP app", () => {
@@ -31,24 +36,26 @@ describe("daemon Effect HTTP app", () => {
     expect(Object.keys(spec.paths).sort()).toEqual([
       "/health",
       "/projects",
-      "/projects/{id}"
+      "/projects/{id}",
     ]);
   });
 
   test("serves GET /health through Effect Platform", async () => {
     const program = Effect.scoped(
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         const response = yield* HttpClient.get("/health");
-        const body = yield* HttpClientResponse.schemaBodyJson(Daemon.HealthResponseSchema)(response);
+        const body = yield* HttpClientResponse.schemaBodyJson(
+          Daemon.HealthResponseSchema,
+        )(response);
 
         expect(response.status).toBe(200);
         expect(body).toEqual({
-          ok: true
+          ok: true,
         });
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServerLive),
-        Effect.provide(NodeHttpServer.layerTest)
-      )
+        Effect.provide(NodeHttpServer.layerTest),
+      ),
     );
 
     await Effect.runPromise(program);
@@ -56,27 +63,29 @@ describe("daemon Effect HTTP app", () => {
 
   test("serves POST /projects through Effect Platform", async () => {
     const program = Effect.scoped(
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         const response = yield* HttpClientRequest.post("/projects").pipe(
           HttpClientRequest.bodyJson({ path: "/home/k/code/pocketpatch" }),
-          Effect.flatMap(HttpClient.execute)
+          Effect.flatMap(HttpClient.execute),
         );
-        const body = yield* HttpClientResponse.schemaBodyJson(Daemon.ProjectRegistrationResponseSchema)(response);
+        const body = yield* HttpClientResponse.schemaBodyJson(
+          Daemon.ProjectRegistrationResponseSchema,
+        )(response);
 
         expect(response.status).toBe(201);
         expect(body.project).toEqual({
           createdAt: "2026-05-29T12:00:00.000Z",
           id: 1,
           lastSeenAt: "2026-05-29T12:00:00.000Z",
-          path: "/home/k/code/pocketpatch"
+          path: "/home/k/code/pocketpatch",
         });
         expect(new URL(body.reviewUrl).pathname).toBe("/projects/1");
         expect(body.reviewUrl).toStartWith("http://127.0.0.1:");
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServerLive),
         Effect.provide(StorageTest),
-        Effect.provide(NodeHttpServer.layerTest)
-      )
+        Effect.provide(NodeHttpServer.layerTest),
+      ),
     );
 
     await Effect.runPromise(program);
@@ -84,9 +93,11 @@ describe("daemon Effect HTTP app", () => {
 
   test("serves GET /projects/:id through Effect Platform", async () => {
     const program = Effect.scoped(
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         const response = yield* HttpClient.get("/projects/1");
-        const body = yield* HttpClientResponse.schemaBodyJson(Daemon.ProjectResponseSchema)(response);
+        const body = yield* HttpClientResponse.schemaBodyJson(
+          Daemon.ProjectResponseSchema,
+        )(response);
 
         expect(response.status).toBe(200);
         expect(body).toEqual({
@@ -94,14 +105,14 @@ describe("daemon Effect HTTP app", () => {
             createdAt: "2026-05-29T12:00:00.000Z",
             id: 1,
             lastSeenAt: "2026-05-29T12:00:00.000Z",
-            path: "/home/k/code/pocketpatch"
-          }
+            path: "/home/k/code/pocketpatch",
+          },
         });
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServerLive),
         Effect.provide(StorageTest),
-        Effect.provide(NodeHttpServer.layerTest)
-      )
+        Effect.provide(NodeHttpServer.layerTest),
+      ),
     );
 
     await Effect.runPromise(program);

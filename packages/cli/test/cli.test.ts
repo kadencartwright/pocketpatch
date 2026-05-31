@@ -1,23 +1,28 @@
-import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
-import type { ConfigEnv, PocketPatchConfig } from "@pocketpatch/config";
-import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
-import { NetworkService } from "@pocketpatch/network";
-import type { LocalAddress } from "@pocketpatch/network";
 import { describe, expect, test } from "bun:test";
+import type { ConfigEnv, PocketPatchConfig } from "@pocketpatch/config";
+import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
+import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
+import type { LocalAddress } from "@pocketpatch/network";
+import { NetworkService } from "@pocketpatch/network";
 import { Effect, Layer } from "effect";
-import { DaemonClientError, DaemonClientService, WorkingDirectoryService, runCli } from "../src/index";
+import {
+  DaemonClientError,
+  DaemonClientService,
+  runCli,
+  WorkingDirectoryService,
+} from "../src/index";
 
 const env: ConfigEnv = {
   HOME: "/home/k",
-  XDG_CONFIG_HOME: "/config"
+  XDG_CONFIG_HOME: "/config",
 };
 
 const config: PocketPatchConfig = {
   version: 1,
   network: {
     bindAddress: null,
-    port: 3217
-  }
+    port: 3217,
+  },
 };
 
 const addresses: Array<LocalAddress> = [
@@ -25,20 +30,20 @@ const addresses: Array<LocalAddress> = [
     address: "127.0.0.1",
     family: "IPv4",
     interfaceName: "lo",
-    internal: true
+    internal: true,
   },
   {
     address: "::1",
     family: "IPv6",
     interfaceName: "lo",
-    internal: true
+    internal: true,
   },
   {
     address: "100.64.12.34",
     family: "IPv4",
     interfaceName: "tailscale0",
-    internal: false
-  }
+    internal: false,
+  },
 ];
 
 const ConfigTest = Layer.succeed(ConfigService, {
@@ -48,7 +53,7 @@ const ConfigTest = Layer.succeed(ConfigService, {
       cacheDir: "/cache/pocketpatch",
       configFile: "/config/pocketpatch/config.json",
       runtimeDir: "/run/pocketpatch",
-      stateDb: "/state/pocketpatch/pocketpatch.db"
+      stateDb: "/state/pocketpatch/pocketpatch.db",
     }),
   save: () => Effect.void,
   setBindAddress: (currentConfig, bindAddress) =>
@@ -56,15 +61,16 @@ const ConfigTest = Layer.succeed(ConfigService, {
       ...currentConfig,
       network: {
         ...currentConfig.network,
-        bindAddress
-      }
-    })
+        bindAddress,
+      },
+    }),
 });
 
 const NetworkTest = Layer.succeed(NetworkService, {
-  computeListenAddresses: () => Effect.succeed(["127.0.0.1", "::1", "100.64.12.34"]),
+  computeListenAddresses: () =>
+    Effect.succeed(["127.0.0.1", "::1", "100.64.12.34"]),
   listLocalAddresses: Effect.succeed(addresses),
-  validateBindAddress: () => Effect.succeed(null)
+  validateBindAddress: () => Effect.succeed(null),
 });
 
 const DaemonControlTest = Layer.succeed(DaemonControlService, {
@@ -73,23 +79,23 @@ const DaemonControlTest = Layer.succeed(DaemonControlService, {
       endpoints: [
         {
           address: "127.0.0.1",
-          port: 3217
+          port: 3217,
         },
         {
           address: "::1",
-          port: 3217
+          port: 3217,
         },
         {
           address: "100.64.12.34",
-          port: 3217
-        }
-      ]
+          port: 3217,
+        },
+      ],
     }),
-  start: () => Effect.void
+  start: () => Effect.void,
 });
 
 const DaemonServerFactoryTest = Layer.succeed(DaemonServerFactory, {
-  bind: () => Effect.void
+  bind: () => Effect.void,
 });
 
 const DaemonClientTest = Layer.succeed(DaemonClientService, {
@@ -99,14 +105,14 @@ const DaemonClientTest = Layer.succeed(DaemonClientService, {
         createdAt: "2026-05-30T12:00:00.000Z",
         id: 1,
         lastSeenAt: "2026-05-30T12:00:00.000Z",
-        path
+        path,
       },
-      reviewUrl: "http://127.0.0.1:3217/projects/1"
-    })
+      reviewUrl: "http://127.0.0.1:3217/projects/1",
+    }),
 });
 
 const WorkingDirectoryTest = Layer.succeed(WorkingDirectoryService, {
-  cwd: Effect.succeed("/home/k/code/pocketpatch")
+  cwd: Effect.succeed("/home/k/code/pocketpatch"),
 });
 
 const runTestCli = (args: ReadonlyArray<string>) =>
@@ -117,8 +123,8 @@ const runTestCli = (args: ReadonlyArray<string>) =>
       Effect.provide(DaemonControlTest),
       Effect.provide(DaemonServerFactoryTest),
       Effect.provide(DaemonClientTest),
-      Effect.provide(WorkingDirectoryTest)
-    )
+      Effect.provide(WorkingDirectoryTest),
+    ),
   );
 
 describe("runCli", () => {
@@ -131,8 +137,8 @@ describe("runCli", () => {
         "lo\tIPv4\t127.0.0.1\ttrue",
         "lo\tIPv6\t::1\ttrue",
         "tailscale0\tIPv4\t100.64.12.34\tfalse",
-        ""
-      ].join("\n")
+        "",
+      ].join("\n"),
     });
   });
 
@@ -143,8 +149,8 @@ describe("runCli", () => {
       stdout: [
         "Config: /config/pocketpatch/config.json",
         JSON.stringify(config, null, 2),
-        ""
-      ].join("\n")
+        "",
+      ].join("\n"),
     });
   });
 
@@ -162,29 +168,29 @@ describe("runCli", () => {
           ...currentConfig,
           network: {
             ...currentConfig.network,
-            bindAddress
-          }
-        })
+            bindAddress,
+          },
+        }),
     });
 
     const result = await Effect.runPromise(
       runCli(["config", "set-bind-address", "100.64.12.34"], env).pipe(
         Effect.provide(ConfigMutationTest),
-        Effect.provide(NetworkTest)
-      )
+        Effect.provide(NetworkTest),
+      ),
     );
 
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "Updated bind address: 100.64.12.34\n"
+      stdout: "Updated bind address: 100.64.12.34\n",
     });
     expect(savedConfig).toEqual({
       version: 1,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3217
-      }
+        port: 3217,
+      },
     });
   });
 
@@ -192,12 +198,9 @@ describe("runCli", () => {
     await expect(runTestCli(["daemon", "plan"])).resolves.toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: [
-        "127.0.0.1:3217",
-        "[::1]:3217",
-        "100.64.12.34:3217",
-        ""
-      ].join("\n")
+      stdout: ["127.0.0.1:3217", "[::1]:3217", "100.64.12.34:3217", ""].join(
+        "\n",
+      ),
     });
   });
 
@@ -208,7 +211,7 @@ describe("runCli", () => {
       start: (startEnv) =>
         Effect.sync(() => {
           startedWith.push(startEnv);
-        })
+        }),
     });
 
     const result = await Effect.runPromise(
@@ -216,14 +219,14 @@ describe("runCli", () => {
         Effect.provide(ConfigTest),
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlStartTest),
-        Effect.provide(DaemonServerFactoryTest)
-      )
+        Effect.provide(DaemonServerFactoryTest),
+      ),
     );
 
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "Starting daemon in foreground\n"
+      stdout: "Starting daemon in foreground\n",
     });
     expect(startedWith).toEqual([env]);
   });
@@ -239,11 +242,11 @@ describe("runCli", () => {
               createdAt: "2026-05-30T12:00:00.000Z",
               id: 7,
               lastSeenAt: "2026-05-30T12:00:00.000Z",
-              path
+              path,
             },
-            reviewUrl: "http://127.0.0.1:3217/projects/7"
+            reviewUrl: "http://127.0.0.1:3217/projects/7",
           };
-        })
+        }),
     });
 
     const result = await Effect.runPromise(
@@ -253,14 +256,14 @@ describe("runCli", () => {
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
         Effect.provide(DaemonClientRegisterTest),
-        Effect.provide(WorkingDirectoryTest)
-      )
+        Effect.provide(WorkingDirectoryTest),
+      ),
     );
 
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "http://127.0.0.1:3217/projects/7\n"
+      stdout: "http://127.0.0.1:3217/projects/7\n",
     });
     expect(registered).toEqual(["/home/k/code/pocketpatch"]);
   });
@@ -276,11 +279,11 @@ describe("runCli", () => {
               createdAt: "2026-05-30T12:00:00.000Z",
               id: 8,
               lastSeenAt: "2026-05-30T12:00:00.000Z",
-              path
+              path,
             },
-            reviewUrl: "http://127.0.0.1:3217/projects/8"
+            reviewUrl: "http://127.0.0.1:3217/projects/8",
           };
-        })
+        }),
     });
 
     const result = await Effect.runPromise(
@@ -290,23 +293,26 @@ describe("runCli", () => {
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
         Effect.provide(DaemonClientRegisterTest),
-        Effect.provide(WorkingDirectoryTest)
-      )
+        Effect.provide(WorkingDirectoryTest),
+      ),
     );
 
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "http://127.0.0.1:3217/projects/8\n"
+      stdout: "http://127.0.0.1:3217/projects/8\n",
     });
     expect(registered).toEqual(["/tmp/project"]);
   });
 
   test("returns a daemon start hint when registration cannot reach the daemon", async () => {
     const DaemonClientFailingTest = Layer.succeed(DaemonClientService, {
-      registerProject: () => Effect.fail(new DaemonClientError({
-        cause: new Error("connection refused")
-      }))
+      registerProject: () =>
+        Effect.fail(
+          new DaemonClientError({
+            cause: new Error("connection refused"),
+          }),
+        ),
     });
 
     const result = await Effect.runPromise(
@@ -316,14 +322,15 @@ describe("runCli", () => {
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
         Effect.provide(DaemonClientFailingTest),
-        Effect.provide(WorkingDirectoryTest)
-      )
+        Effect.provide(WorkingDirectoryTest),
+      ),
     );
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: "PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start\n",
-      stdout: ""
+      stderr:
+        "PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start\n",
+      stdout: "",
     });
   });
 
@@ -336,14 +343,14 @@ describe("runCli", () => {
         Effect.sync(() => {
           savedConfig = nextConfig;
         }),
-      setBindAddress: setBindAddressEffect
+      setBindAddress: setBindAddressEffect,
     });
 
     const result = await Effect.runPromise(
       runCli(["config", "set-bind-address", "not-an-ip"], env).pipe(
         Effect.provide(ConfigValidationTest),
-        Effect.provide(NetworkTest)
-      )
+        Effect.provide(NetworkTest),
+      ),
     );
 
     expect(result.exitCode).toBe(1);
@@ -357,6 +364,8 @@ describe("runCli", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Invalid subcommand for pocketpatch - use one of 'config', 'daemon'");
+    expect(result.stderr).toContain(
+      "Invalid subcommand for pocketpatch - use one of 'config', 'daemon'",
+    );
   });
 });

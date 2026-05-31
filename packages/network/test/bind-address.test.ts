@@ -6,20 +6,20 @@ const addresses: Array<Network.LocalAddress> = [
     address: "127.0.0.1",
     family: "IPv4",
     interfaceName: "lo",
-    internal: true
+    internal: true,
   },
   {
     address: "::1",
     family: "IPv6",
     interfaceName: "lo",
-    internal: true
+    internal: true,
   },
   {
     address: "100.64.12.34",
     family: "IPv4",
     interfaceName: "tailscale0",
-    internal: false
-  }
+    internal: false,
+  },
 ];
 
 describe("bind address validation", () => {
@@ -32,14 +32,14 @@ describe("bind address validation", () => {
       address: "100.64.12.34",
       family: "IPv4",
       interfaceName: "tailscale0",
-      internal: false
+      internal: false,
     });
   });
 
   test("rejects a configured address that is not local", () => {
-    expect(() => Network.validateBindAddress("100.64.99.99", addresses)).toThrow(
-      Network.BindAddressNotFoundError
-    );
+    expect(() =>
+      Network.validateBindAddress("100.64.99.99", addresses),
+    ).toThrow(Network.BindAddressNotFoundError);
   });
 
   test("bind address errors include requested and available addresses", () => {
@@ -51,7 +51,7 @@ describe("bind address validation", () => {
       expect(error).toMatchObject({
         _tag: "BindAddressNotFoundError",
         address: "100.64.99.99",
-        availableAddresses: addresses
+        availableAddresses: addresses,
       });
     }
   });

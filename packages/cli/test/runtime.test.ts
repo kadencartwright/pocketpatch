@@ -1,9 +1,9 @@
-import { resolveConfigPaths } from "@pocketpatch/config";
-import type { ConfigEnv } from "@pocketpatch/config";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ConfigEnv } from "@pocketpatch/config";
+import { resolveConfigPaths } from "@pocketpatch/config";
 import { runPocketPatchCli } from "../src/runtime";
 
 const exists = async (path: string): Promise<boolean> => {
@@ -24,7 +24,7 @@ const makeTempEnv = async (): Promise<ConfigEnv> => {
   return {
     HOME: home,
     XDG_CONFIG_HOME: join(root, "config"),
-    XDG_STATE_HOME: join(root, "state")
+    XDG_STATE_HOME: join(root, "state"),
   };
 };
 

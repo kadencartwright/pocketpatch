@@ -7,7 +7,7 @@ const readConfigEnv = (): ConfigEnv => ({
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-  XDG_STATE_HOME: process.env.XDG_STATE_HOME
+  XDG_STATE_HOME: process.env.XDG_STATE_HOME,
 });
 
 const result = await runPocketPatchCli(process.argv.slice(2), readConfigEnv());

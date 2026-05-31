@@ -1,6 +1,6 @@
+import { describe, expect, test } from "bun:test";
 import { ConfigService } from "@pocketpatch/config";
 import { NetworkService } from "@pocketpatch/network";
-import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Either, Exit, Layer } from "effect";
 import * as Daemon from "../src/index";
 
@@ -11,25 +11,25 @@ describe("daemon server runner", () => {
       bind: (endpoint) =>
         Effect.sync(() => {
           started.push(endpoint);
-        })
+        }),
     });
     const plan: Daemon.DaemonStartupPlan = {
       endpoints: [
         {
           address: "127.0.0.1",
-          port: 3217
+          port: 3217,
         },
         {
           address: "100.64.12.34",
-          port: 3217
-        }
-      ]
+          port: 3217,
+        },
+      ],
     };
 
     await Effect.runPromise(
       Effect.scoped(
-        Daemon.startDaemonServers(plan).pipe(Effect.provide(FactoryTest))
-      )
+        Daemon.startDaemonServers(plan).pipe(Effect.provide(FactoryTest)),
+      ),
     );
 
     expect(started).toEqual(plan.endpoints);
@@ -40,11 +40,11 @@ describe("daemon server runner", () => {
     const stopped: Array<Daemon.DaemonEndpoint> = [];
     const failingEndpoint: Daemon.DaemonEndpoint = {
       address: "100.64.12.34",
-      port: 3217
+      port: 3217,
     };
     const error = new Daemon.DaemonServerBindError({
       cause: new Error("bind failed"),
-      endpoint: failingEndpoint
+      endpoint: failingEndpoint,
     });
     const FactoryTest = Layer.succeed(Daemon.DaemonServerFactory, {
       bind: (endpoint) => {
@@ -59,23 +59,23 @@ describe("daemon server runner", () => {
           () =>
             Effect.sync(() => {
               stopped.push(endpoint);
-            })
+            }),
         );
-      }
+      },
     });
     const plan: Daemon.DaemonStartupPlan = {
       endpoints: [
         {
           address: "127.0.0.1",
-          port: 3217
+          port: 3217,
         },
-        failingEndpoint
-      ]
+        failingEndpoint,
+      ],
     };
     const exit = await Effect.runPromiseExit(
       Effect.scoped(
-        Daemon.startDaemonServers(plan).pipe(Effect.provide(FactoryTest))
-      )
+        Daemon.startDaemonServers(plan).pipe(Effect.provide(FactoryTest)),
+      ),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -99,23 +99,23 @@ describe("daemon server runner", () => {
           version: 1 as const,
           network: {
             bindAddress: null,
-            port: 3217
-          }
+            port: 3217,
+          },
         }),
       paths: () => Effect.die("unused"),
       save: () => Effect.die("unused"),
-      setBindAddress: () => Effect.die("unused")
+      setBindAddress: () => Effect.die("unused"),
     });
     const NetworkTest = Layer.succeed(NetworkService, {
       computeListenAddresses: () => Effect.succeed(["127.0.0.1", "::1"]),
       listLocalAddresses: Effect.die("unused"),
-      validateBindAddress: () => Effect.die("unused")
+      validateBindAddress: () => Effect.die("unused"),
     });
     const FactoryTest = Layer.succeed(Daemon.DaemonServerFactory, {
       bind: (endpoint) =>
         Effect.sync(() => {
           started.push(endpoint);
-        })
+        }),
     });
 
     await Effect.runPromise(
@@ -123,20 +123,20 @@ describe("daemon server runner", () => {
         Daemon.startDaemon({ HOME: "/home/k" }).pipe(
           Effect.provide(ConfigTest),
           Effect.provide(NetworkTest),
-          Effect.provide(FactoryTest)
-        )
-      )
+          Effect.provide(FactoryTest),
+        ),
+      ),
     );
 
     expect(started).toEqual([
       {
         address: "127.0.0.1",
-        port: 3217
+        port: 3217,
       },
       {
         address: "::1",
-        port: 3217
-      }
+        port: 3217,
+      },
     ]);
   });
 });

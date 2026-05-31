@@ -1,5 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { describe, expect, test } from "bun:test";
+import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import * as Config from "../src/index";
 
@@ -7,22 +7,23 @@ describe("config Effect layers", () => {
   test("readConfigEffect reads through an injected FileSystem", async () => {
     const env: Config.ConfigEnv = {
       HOME: "/home/k",
-      XDG_CONFIG_HOME: "/config"
+      XDG_CONFIG_HOME: "/config",
     };
     const config: Config.PocketPatchConfig = {
       version: 1,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3218
-      }
+        port: 3218,
+      },
     };
     const fileSystem = FileSystem.layerNoop({
-      exists: (path) => Effect.succeed(path === "/config/pocketpatch/config.json"),
-      readFileString: () => Effect.succeed(JSON.stringify(config))
+      exists: (path) =>
+        Effect.succeed(path === "/config/pocketpatch/config.json"),
+      readFileString: () => Effect.succeed(JSON.stringify(config)),
     });
 
     const result = await Effect.runPromise(
-      Config.readConfigEffect(env).pipe(Effect.provide(fileSystem))
+      Config.readConfigEffect(env).pipe(Effect.provide(fileSystem)),
     );
 
     expect(result).toEqual(config);
@@ -31,20 +32,20 @@ describe("config Effect layers", () => {
   test("ConfigService load uses the injected FileSystem", async () => {
     const env: Config.ConfigEnv = {
       HOME: "/home/k",
-      XDG_CONFIG_HOME: "/config"
+      XDG_CONFIG_HOME: "/config",
     };
     const config: Config.PocketPatchConfig = {
       version: 1,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3218
-      }
+        port: 3218,
+      },
     };
     const fileSystem = FileSystem.layerNoop({
       exists: () => Effect.succeed(true),
-      readFileString: () => Effect.succeed(JSON.stringify(config))
+      readFileString: () => Effect.succeed(JSON.stringify(config)),
     });
-    const program = Effect.gen(function*() {
+    const program = Effect.gen(function* () {
       const service = yield* Config.ConfigService;
 
       return yield* service.load(env);
@@ -53,42 +54,45 @@ describe("config Effect layers", () => {
     const result = await Effect.runPromise(
       program.pipe(
         Effect.provide(Config.ConfigServiceLive),
-        Effect.provide(fileSystem)
-      )
+        Effect.provide(fileSystem),
+      ),
     );
 
     expect(result).toEqual(config);
   });
 
   test("ConfigService setBindAddress is Effect-native", async () => {
-    const program = Effect.gen(function*() {
+    const program = Effect.gen(function* () {
       const service = yield* Config.ConfigService;
 
-      return yield* service.setBindAddress(Config.defaultConfig, "100.64.12.34");
+      return yield* service.setBindAddress(
+        Config.defaultConfig,
+        "100.64.12.34",
+      );
     });
 
-    await expect(Effect.runPromise(
-      program.pipe(Effect.provide(Config.ConfigServiceLive))
-    )).resolves.toEqual({
+    await expect(
+      Effect.runPromise(program.pipe(Effect.provide(Config.ConfigServiceLive))),
+    ).resolves.toEqual({
       version: 1,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3217
-      }
+        port: 3217,
+      },
     });
   });
 
   test("ConfigService save uses the injected FileSystem", async () => {
     const env: Config.ConfigEnv = {
       HOME: "/home/k",
-      XDG_CONFIG_HOME: "/config"
+      XDG_CONFIG_HOME: "/config",
     };
     const config: Config.PocketPatchConfig = {
       version: 1,
       network: {
         bindAddress: "100.64.12.34",
-        port: 3218
-      }
+        port: 3218,
+      },
     };
     const writes: Array<{ path: string; contents: string }> = [];
     const directories: Array<string> = [];
@@ -100,9 +104,9 @@ describe("config Effect layers", () => {
       writeFileString: (path, contents) =>
         Effect.sync(() => {
           writes.push({ contents, path });
-        })
+        }),
     });
-    const program = Effect.gen(function*() {
+    const program = Effect.gen(function* () {
       const service = yield* Config.ConfigService;
 
       yield* service.save(env, config);
@@ -111,14 +115,16 @@ describe("config Effect layers", () => {
     await Effect.runPromise(
       program.pipe(
         Effect.provide(Config.ConfigServiceLive),
-        Effect.provide(fileSystem)
-      )
+        Effect.provide(fileSystem),
+      ),
     );
 
     expect(directories).toEqual(["/config/pocketpatch"]);
-    expect(writes).toEqual([{
-      contents: `${JSON.stringify(config, null, 2)}\n`,
-      path: "/config/pocketpatch/config.json"
-    }]);
+    expect(writes).toEqual([
+      {
+        contents: `${JSON.stringify(config, null, 2)}\n`,
+        path: "/config/pocketpatch/config.json",
+      },
+    ]);
   });
 });

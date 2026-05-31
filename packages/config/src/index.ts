@@ -1,22 +1,30 @@
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
-import { Cause, Context, Effect, Exit, Layer, ParseResult, Schema } from "effect";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  ParseResult,
+  Schema,
+} from "effect";
 
 const IpAddressSchema = Schema.String.pipe(
   Schema.filter((value) => isIP(value) !== 0, {
     identifier: "IpAddress",
-    message: () => "Expected a valid IP address"
-  })
+    message: () => "Expected a valid IP address",
+  }),
 );
 
 export const ConfigSchema = Schema.Struct({
   version: Schema.Literal(1),
   network: Schema.Struct({
     bindAddress: Schema.NullOr(IpAddressSchema),
-    port: Schema.Number.pipe(Schema.int(), Schema.between(1, 65535))
-  })
+    port: Schema.Number.pipe(Schema.int(), Schema.between(1, 65535)),
+  }),
 });
 
 export type PocketPatchConfig = typeof ConfigSchema.Type;
@@ -25,8 +33,8 @@ export const defaultConfig: PocketPatchConfig = {
   version: 1,
   network: {
     bindAddress: null,
-    port: 3217
-  }
+    port: 3217,
+  },
 };
 
 const decodeConfigEffect = Schema.decodeUnknown(ConfigSchema);
@@ -52,8 +60,8 @@ export type ConfigPaths = {
 export class ConfigPathError extends Schema.TaggedError<ConfigPathError>()(
   "ConfigPathError",
   {
-    variable: Schema.String
-  }
+    variable: Schema.String,
+  },
 ) {
   override get message(): string {
     return `Missing ${this.variable}; set XDG paths or HOME`;
@@ -64,8 +72,8 @@ export class ConfigJsonParseError extends Schema.TaggedError<ConfigJsonParseErro
   "ConfigJsonParseError",
   {
     cause: Schema.Unknown,
-    path: Schema.String
-  }
+    path: Schema.String,
+  },
 ) {
   override get message(): string {
     return `Invalid JSON config at ${this.path}`;
@@ -77,11 +85,13 @@ export class ConfigValidationError extends Schema.TaggedError<ConfigValidationEr
   {
     cause: Schema.Unknown,
     message: Schema.String,
-    path: Schema.String
-  }
+    path: Schema.String,
+  },
 ) {}
 
-const runPromiseDomain = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
+const runPromiseDomain = async <A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> => {
   const exit = await Effect.runPromiseExit(effect);
   if (Exit.isSuccess(exit)) {
     return exit.value;
@@ -98,23 +108,36 @@ const resolveHome = (env: ConfigEnv): Effect.Effect<string, ConfigPathError> =>
 const resolveWithHome = (
   env: ConfigEnv,
   xdgValue: string | undefined,
-  fallback: (home: string) => string
+  fallback: (home: string) => string,
 ): Effect.Effect<string, ConfigPathError> =>
   xdgValue === undefined || xdgValue === ""
     ? Effect.map(resolveHome(env), fallback)
     : Effect.succeed(xdgValue);
 
-const resolveConfigPathsEffect = (env: ConfigEnv): Effect.Effect<ConfigPaths, ConfigPathError> =>
-  Effect.gen(function*() {
-    const cacheHome = yield* resolveWithHome(env, env.XDG_CACHE_HOME, (home) => join(home, ".cache"));
-    const configHome = yield* resolveWithHome(env, env.XDG_CONFIG_HOME, (home) => join(home, ".config"));
-    const stateHome = yield* resolveWithHome(env, env.XDG_STATE_HOME, (home) => join(home, ".local", "state"));
+const resolveConfigPathsEffect = (
+  env: ConfigEnv,
+): Effect.Effect<ConfigPaths, ConfigPathError> =>
+  Effect.gen(function* () {
+    const cacheHome = yield* resolveWithHome(env, env.XDG_CACHE_HOME, (home) =>
+      join(home, ".cache"),
+    );
+    const configHome = yield* resolveWithHome(
+      env,
+      env.XDG_CONFIG_HOME,
+      (home) => join(home, ".config"),
+    );
+    const stateHome = yield* resolveWithHome(env, env.XDG_STATE_HOME, (home) =>
+      join(home, ".local", "state"),
+    );
 
     return {
       cacheDir: join(cacheHome, "pocketpatch"),
       configFile: join(configHome, "pocketpatch", "config.json"),
-      runtimeDir: env.XDG_RUNTIME_DIR === undefined ? null : join(env.XDG_RUNTIME_DIR, "pocketpatch"),
-      stateDb: join(stateHome, "pocketpatch", "pocketpatch.db")
+      runtimeDir:
+        env.XDG_RUNTIME_DIR === undefined
+          ? null
+          : join(env.XDG_RUNTIME_DIR, "pocketpatch"),
+      stateDb: join(stateHome, "pocketpatch", "pocketpatch.db"),
     };
   });
 
@@ -122,7 +145,7 @@ export const resolveConfigPaths = (env: ConfigEnv): Promise<ConfigPaths> =>
   runPromiseDomain(resolveConfigPathsEffect(env));
 
 export const readConfigEffect = (env: ConfigEnv) =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const paths = yield* resolveConfigPathsEffect(env);
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs.exists(paths.configFile);
@@ -137,10 +160,12 @@ export const readConfigEffect = (env: ConfigEnv) =>
     try {
       parsed = JSON.parse(contents);
     } catch (error) {
-      return yield* Effect.fail(new ConfigJsonParseError({
-        cause: error,
-        path: paths.configFile
-      }));
+      return yield* Effect.fail(
+        new ConfigJsonParseError({
+          cause: error,
+          path: paths.configFile,
+        }),
+      );
     }
 
     const decoded = yield* Effect.exit(decodeConfigEffect(parsed));
@@ -149,56 +174,76 @@ export const readConfigEffect = (env: ConfigEnv) =>
     }
 
     const cause = Cause.squash(decoded.cause);
-    const message = cause instanceof ParseResult.ParseError
-      ? ParseResult.TreeFormatter.formatErrorSync(cause)
-      : String(cause);
+    const message =
+      cause instanceof ParseResult.ParseError
+        ? ParseResult.TreeFormatter.formatErrorSync(cause)
+        : String(cause);
 
-    return yield* Effect.fail(new ConfigValidationError({
-      cause,
-      message,
-      path: paths.configFile
-    }));
+    return yield* Effect.fail(
+      new ConfigValidationError({
+        cause,
+        message,
+        path: paths.configFile,
+      }),
+    );
   });
 
 export const readConfig = (env: ConfigEnv): Promise<PocketPatchConfig> =>
-  runPromiseDomain(readConfigEffect(env).pipe(Effect.provide(NodeFileSystem.layer)));
+  runPromiseDomain(
+    readConfigEffect(env).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 
 export const writeConfigEffect = (env: ConfigEnv, config: PocketPatchConfig) =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const paths = yield* resolveConfigPathsEffect(env);
     const fs = yield* FileSystem.FileSystem;
 
     yield* fs.makeDirectory(dirname(paths.configFile), { recursive: true });
-    yield* fs.writeFileString(paths.configFile, `${JSON.stringify(config, null, 2)}\n`);
+    yield* fs.writeFileString(
+      paths.configFile,
+      `${JSON.stringify(config, null, 2)}\n`,
+    );
   });
 
-export const writeConfig = (env: ConfigEnv, config: PocketPatchConfig): Promise<void> =>
-  runPromiseDomain(writeConfigEffect(env, config).pipe(Effect.provide(NodeFileSystem.layer)));
+export const writeConfig = (
+  env: ConfigEnv,
+  config: PocketPatchConfig,
+): Promise<void> =>
+  runPromiseDomain(
+    writeConfigEffect(env, config).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 
 export const setBindAddressEffect = (
   config: PocketPatchConfig,
-  bindAddress: string | null
+  bindAddress: string | null,
 ): Effect.Effect<PocketPatchConfig, ParseResult.ParseError> =>
   decodeConfigEffect({
     ...config,
     network: {
       ...config.network,
-      bindAddress
-    }
+      bindAddress,
+    },
   });
 
 export const setBindAddress = (
   config: PocketPatchConfig,
-  bindAddress: string | null
+  bindAddress: string | null,
 ): Promise<PocketPatchConfig> =>
   Effect.runPromise(setBindAddressEffect(config, bindAddress));
 
-export class ConfigService extends Context.Tag("@pocketpatch/config/ConfigService")<
+export class ConfigService extends Context.Tag(
+  "@pocketpatch/config/ConfigService",
+)<
   ConfigService,
   {
     readonly load: (env: ConfigEnv) => ReturnType<typeof readConfigEffect>;
-    readonly paths: (env: ConfigEnv) => Effect.Effect<ConfigPaths, ConfigPathError>;
-    readonly save: (env: ConfigEnv, config: PocketPatchConfig) => ReturnType<typeof writeConfigEffect>;
+    readonly paths: (
+      env: ConfigEnv,
+    ) => Effect.Effect<ConfigPaths, ConfigPathError>;
+    readonly save: (
+      env: ConfigEnv,
+      config: PocketPatchConfig,
+    ) => ReturnType<typeof writeConfigEffect>;
     readonly setBindAddress: typeof setBindAddressEffect;
   }
 >() {}
@@ -207,5 +252,5 @@ export const ConfigServiceLive = Layer.succeed(ConfigService, {
   load: readConfigEffect,
   paths: resolveConfigPathsEffect,
   save: writeConfigEffect,
-  setBindAddress: setBindAddressEffect
+  setBindAddress: setBindAddressEffect,
 });
