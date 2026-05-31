@@ -4,6 +4,7 @@ import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
 import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
 import type { LocalAddress } from "@pocketpatch/network";
 import { NetworkService } from "@pocketpatch/network";
+import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import {
   DaemonClientError,
@@ -98,6 +99,45 @@ const DaemonServerFactoryTest = Layer.succeed(DaemonServerFactory, {
   bind: () => Effect.void,
 });
 
+const storageTestService = {
+  createComment: () => Effect.die("unused"),
+  deleteComment: () => Effect.die("unused"),
+  getProject: (projectId) =>
+    projectId === 1
+      ? Effect.succeed({
+          createdAt: "2026-05-30T12:00:00.000Z",
+          id: 1,
+          lastSeenAt: "2026-05-30T12:00:00.000Z",
+          path: "/home/k/code/pocketpatch",
+        })
+      : Effect.fail(new ProjectNotFoundError({ projectId })),
+  listComments: (projectId) =>
+    projectId === 1
+      ? Effect.succeed([
+          {
+            body: "Prefer the Effect helper here.",
+            createdAt: "2026-05-31T12:00:00.000Z",
+            filePath: "packages/daemon/src/index.ts",
+            id: 1,
+            newLineNumber: 353,
+            oldLineNumber: null,
+            projectId,
+          },
+        ])
+      : Effect.succeed([]),
+  listProjects: Effect.succeed([
+    {
+      createdAt: "2026-05-30T12:00:00.000Z",
+      id: 1,
+      lastSeenAt: "2026-05-30T12:00:00.000Z",
+      path: "/home/k/code/pocketpatch",
+    },
+  ]),
+  registerProject: () => Effect.die("unused"),
+};
+
+const StorageTest = Layer.succeed(StorageService, storageTestService);
+
 const DaemonClientTest = Layer.succeed(DaemonClientService, {
   registerProject: (_env, path) =>
     Effect.succeed({
@@ -123,6 +163,7 @@ const runTestCli = (args: ReadonlyArray<string>) =>
       Effect.provide(DaemonControlTest),
       Effect.provide(DaemonServerFactoryTest),
       Effect.provide(DaemonClientTest),
+      Effect.provide(StorageTest),
       Effect.provide(WorkingDirectoryTest),
     ),
   );
@@ -334,6 +375,72 @@ describe("runCli", () => {
     });
   });
 
+  test("prints comments for an explicit project", async () => {
+    const result = await runTestCli(["comments", "--project", "1"]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: [
+        "PocketPatch comments for /home/k/code/pocketpatch (project 1)",
+        "",
+        "packages/daemon/src/index.ts",
+        "- new 353 (comment 1)",
+        "  Prefer the Effect helper here.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  test("prints comments for the project containing the current working directory", async () => {
+    const result = await Effect.runPromise(
+      runCli(["comments"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonClientTest),
+        Effect.provide(StorageTest),
+        Effect.provide(
+          Layer.succeed(WorkingDirectoryService, {
+            cwd: Effect.succeed("/home/k/code/pocketpatch/packages/cli"),
+          }),
+        ),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "PocketPatch comments for /home/k/code/pocketpatch (project 1)",
+    );
+  });
+
+  test("returns a helpful failure when comments cannot infer a registered project", async () => {
+    const result = await Effect.runPromise(
+      runCli(["comments"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonClientTest),
+        Effect.provide(
+          Layer.succeed(StorageService, {
+            ...storageTestService,
+            listProjects: Effect.succeed([]),
+          }),
+        ),
+        Effect.provide(WorkingDirectoryTest),
+      ),
+    );
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stderr:
+        "No registered PocketPatch project contains /home/k/code/pocketpatch. Run pocketpatch register from the project first, or pass --project.\n",
+      stdout: "",
+    });
+  });
+
   test("returns a failed result for invalid bind addresses", async () => {
     let savedConfig: PocketPatchConfig | null = null;
     const ConfigValidationTest = Layer.succeed(ConfigService, {
@@ -365,7 +472,7 @@ describe("runCli", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain(
-      "Invalid subcommand for pocketpatch - use one of 'config', 'daemon'",
+      "Invalid subcommand for pocketpatch - use one of 'comments', 'config', 'daemon', 'register'",
     );
   });
 });

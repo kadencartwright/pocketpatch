@@ -68,4 +68,26 @@ describe("CLI runtime", () => {
     expect(result.stdout).toContain("USAGE");
     await expect(exists(paths.stateDb)).resolves.toBe(false);
   });
+
+  test("does not initialize storage for comments help", async () => {
+    const env = await makeTempEnv();
+    const paths = await resolveConfigPaths(env);
+    const result = await runPocketPatchCli(["comments", "--help"], env);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("USAGE");
+    await expect(exists(paths.stateDb)).resolves.toBe(false);
+  });
+
+  test("initializes storage for comments", async () => {
+    const env = await makeTempEnv();
+    const paths = await resolveConfigPaths(env);
+    const result = await runPocketPatchCli(["comments"], env);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "No registered PocketPatch project contains",
+    );
+    await expect(exists(paths.stateDb)).resolves.toBe(true);
+  });
 });

@@ -9,7 +9,11 @@ import {
   DaemonServerFactoryLive,
 } from "@pocketpatch/daemon";
 import { NetworkServiceNodeLive } from "@pocketpatch/network";
-import { StorageServiceLive } from "@pocketpatch/storage";
+import {
+  ProjectNotFoundError,
+  StorageService,
+  StorageServiceLive,
+} from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import {
   DaemonClientServiceLive,
@@ -21,8 +25,19 @@ const NoopDaemonServerFactoryLive = Layer.succeed(DaemonServerFactory, {
   bind: () => Effect.void,
 });
 
+const NoopStorageServiceLive = Layer.succeed(StorageService, {
+  createComment: () => Effect.die("Storage is unavailable for this command"),
+  deleteComment: () => Effect.die("Storage is unavailable for this command"),
+  getProject: (projectId) =>
+    Effect.fail(new ProjectNotFoundError({ projectId })),
+  listComments: () => Effect.succeed([]),
+  listProjects: Effect.succeed([]),
+  registerProject: () => Effect.die("Storage is unavailable for this command"),
+});
+
 const commandNeedsStorage = (args: ReadonlyArray<string>): boolean =>
-  args.length === 2 && args[0] === "daemon" && args[1] === "start";
+  (args.length === 2 && args[0] === "daemon" && args[1] === "start") ||
+  (args[0] === "comments" && !args.includes("--help"));
 
 const runWithBaseLayers = (args: ReadonlyArray<string>, env: ConfigEnv) =>
   runCli(args, env).pipe(
@@ -31,6 +46,7 @@ const runWithBaseLayers = (args: ReadonlyArray<string>, env: ConfigEnv) =>
     Effect.provide(DaemonControlServiceLive),
     Effect.provide(NoopDaemonServerFactoryLive),
     Effect.provide(NetworkServiceNodeLive),
+    Effect.provide(NoopStorageServiceLive),
     Effect.provide(WorkingDirectoryServiceLive),
   );
 

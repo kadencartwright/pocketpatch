@@ -76,6 +76,39 @@ describe("project storage", () => {
     });
   });
 
+  test("lists registered projects by last seen time, newest first", async () => {
+    const result = await runStorage(
+      Effect.gen(function* () {
+        const storage = yield* Storage.StorageService;
+        const first = yield* storage.registerProject("/home/k/code/first");
+        const second = yield* storage.registerProject("/home/k/code/second");
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`
+          UPDATE projects
+          SET last_seen_at = '2026-05-30T12:00:00.000Z'
+          WHERE id = ${second.id}
+        `;
+        yield* sql`
+          UPDATE projects
+          SET last_seen_at = '2026-05-31T12:00:00.000Z'
+          WHERE id = ${first.id}
+        `;
+
+        return {
+          first,
+          projects: yield* storage.listProjects,
+          second,
+        };
+      }),
+    );
+
+    expect(result.projects.map((project) => project.path)).toEqual([
+      result.first.path,
+      result.second.path,
+    ]);
+  });
+
   test("fails with ProjectNotFoundError when a project id is missing", async () => {
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {

@@ -289,7 +289,7 @@ const toggleCommentForm = async (
                                 {line.newLineNumber}
                               </button>
                               {/if}
-                              <code class="min-w-0 pr-2 whitespace-pre-wrap [overflow-wrap:anywhere] md:pr-3">
+                              <code class="min-w-max pr-2 whitespace-pre md:pr-3">
                                 <span>{line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " "}</span>{#each line.tokens as token}<span style:color={token.color}>{token.content}</span>{/each}
                               </code>
                             </div>

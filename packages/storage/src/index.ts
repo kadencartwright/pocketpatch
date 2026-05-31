@@ -238,6 +238,18 @@ export const getProject = (
     return toProject(row);
   });
 
+export const listProjects = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<ReadonlyArray<Project>, SqlError> =>
+  Effect.map(
+    sql<ProjectRow>`
+      SELECT id, path, created_at, last_seen_at
+      FROM projects
+      ORDER BY last_seen_at DESC, id DESC
+    `,
+    (rows) => rows.map(toProject),
+  );
+
 export class StorageService extends Context.Tag(
   "@pocketpatch/storage/StorageService",
 )<
@@ -253,6 +265,7 @@ export class StorageService extends Context.Tag(
     readonly getProject: (
       projectId: number,
     ) => Effect.Effect<Project, ProjectNotFoundError | SqlError>;
+    readonly listProjects: Effect.Effect<ReadonlyArray<Project>, SqlError>;
     readonly listComments: (
       projectId: number,
     ) => Effect.Effect<ReadonlyArray<Comment>, SqlError>;
@@ -275,6 +288,7 @@ export const StorageServiceLive = Layer.effect(
       deleteComment: (projectId, commentId) =>
         deleteComment(sql, projectId, commentId),
       getProject: (projectId) => getProject(sql, projectId),
+      listProjects: listProjects(sql),
       listComments: (projectId) => listComments(sql, projectId),
       registerProject: (path) => registerProject(sql, path),
     };

@@ -1,4 +1,4 @@
-import { Args, Command, ValidationError } from "@effect/cli";
+import { Args, Command, Options, ValidationError } from "@effect/cli";
 import {
   type FileSystem,
   HttpApiClient,
@@ -16,6 +16,7 @@ import {
 } from "@pocketpatch/daemon";
 import type { LocalAddress } from "@pocketpatch/network";
 import { NetworkService } from "@pocketpatch/network";
+import { StorageService } from "@pocketpatch/storage";
 import {
   Cause,
   Console,
@@ -26,6 +27,11 @@ import {
   Option,
   Schema,
 } from "effect";
+import { formatProjectComments } from "./comments";
+import {
+  ProjectContextNotFoundError,
+  resolveProjectForCwd,
+} from "./project-context";
 
 export type CliResult = {
   readonly exitCode: number;
@@ -140,6 +146,8 @@ const formatCause = (cause: Cause.Cause<unknown>): string => {
 
   return error instanceof Error ? error.message : String(error);
 };
+
+const optionalProjectId = Options.integer("project").pipe(Options.optional);
 
 const consoleLine = (args: ReadonlyArray<unknown>): string =>
   `${args.map(String).join(" ")}\n`;
@@ -264,9 +272,40 @@ const registerCommand = (env: ConfigEnv) =>
       }),
   );
 
+const commentsCommand = Command.make(
+  "comments",
+  {
+    project: optionalProjectId,
+  },
+  ({ project }) =>
+    Effect.gen(function* () {
+      const storage = yield* StorageService;
+      const workingDirectory = yield* WorkingDirectoryService;
+      const resolvedProject = yield* Option.match(project, {
+        onNone: () =>
+          Effect.gen(function* () {
+            const cwd = yield* workingDirectory.cwd;
+            const projects = yield* storage.listProjects;
+            const inferredProject = resolveProjectForCwd(projects, cwd);
+
+            if (inferredProject instanceof ProjectContextNotFoundError) {
+              return yield* Effect.fail(inferredProject);
+            }
+
+            return inferredProject;
+          }),
+        onSome: (projectId) => storage.getProject(projectId),
+      });
+      const comments = yield* storage.listComments(resolvedProject.id);
+
+      yield* writeStdout(formatProjectComments(resolvedProject, comments));
+    }),
+);
+
 const pocketPatchCommand = (env: ConfigEnv) =>
   Command.make("pocketpatch").pipe(
     Command.withSubcommands([
+      commentsCommand,
       configCommand(env),
       daemonCommand(env),
       registerCommand(env),
@@ -290,6 +329,7 @@ export const runCli = (
   | DaemonControlService
   | DaemonServerFactory
   | NetworkService
+  | StorageService
   | WorkingDirectoryService
 > =>
   Effect.gen(function* () {
