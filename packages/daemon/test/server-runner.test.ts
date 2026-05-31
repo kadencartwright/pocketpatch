@@ -1,8 +1,67 @@
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:net";
 import { ConfigService } from "@pocketpatch/config";
+import { GitService } from "@pocketpatch/git";
 import { NetworkService } from "@pocketpatch/network";
+import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import { Cause, Effect, Either, Exit, Layer } from "effect";
 import * as Daemon from "../src/index";
+
+const getAvailablePort = () =>
+  new Promise<number>((resolve, reject) => {
+    const server = createServer();
+
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("expected TCP address"));
+        return;
+      }
+
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(address.port);
+      });
+    });
+  });
+
+const fetchHealth = async (port: number) => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      return await fetch(`http://127.0.0.1:${port}/health`);
+    } catch (error) {
+      lastError = error;
+      await Bun.sleep(25);
+    }
+  }
+
+  throw lastError;
+};
+
+const StorageTest = Layer.succeed(StorageService, {
+  getProject: (projectId) =>
+    Effect.fail(new ProjectNotFoundError({ projectId })),
+  registerProject: (path) =>
+    Effect.succeed({
+      createdAt: "2026-05-29T12:00:00.000Z",
+      id: 1,
+      lastSeenAt: "2026-05-29T12:00:00.000Z",
+      path,
+    }),
+});
+
+const GitTest = Layer.succeed(GitService, {
+  inspectRepository: () => Effect.die("unused"),
+});
 
 describe("daemon server runner", () => {
   test("starts one server per planned endpoint", async () => {
@@ -138,5 +197,32 @@ describe("daemon server runner", () => {
         port: 3217,
       },
     ]);
+  });
+
+  test("live server factory binds a real HTTP server", async () => {
+    const port = await getAvailablePort();
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* Daemon.startDaemonServer({
+            address: "127.0.0.1",
+            port,
+          });
+
+          const response = yield* Effect.promise(() => fetchHealth(port));
+          const body = yield* Effect.promise(() => response.json());
+
+          expect(response.status).toBe(200);
+          expect(body).toEqual({
+            ok: true,
+          });
+        }).pipe(
+          Effect.provide(Daemon.DaemonServerFactoryLive),
+          Effect.provide(StorageTest),
+          Effect.provide(GitTest),
+        ),
+      ),
+    );
   });
 });

@@ -346,15 +346,17 @@ export const DaemonServerFactoryLive = Layer.effect(
 
     return {
       bind: (endpoint) =>
-        Layer.build(DaemonHttpServerLive).pipe(
-          Effect.provideService(StorageService, storage),
-          Effect.provide(GitServiceLive),
-          Effect.provide(
+        DaemonHttpServerLive.pipe(
+          Layer.provide(Layer.succeed(StorageService, storage)),
+          Layer.provide(GitServiceLive),
+          Layer.provide(
             NodeHttpServer.layer(() => createServer(), {
               host: endpoint.address,
               port: endpoint.port,
             }),
           ),
+          Layer.launch,
+          Effect.forkScoped,
           Effect.asVoid,
           Effect.mapError(
             (cause) =>

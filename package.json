@@ -8,13 +8,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && cd packages/web && bunx vite build",
     "format": "biome format --write .",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "prepare": "lefthook install",
     "test": "bun test ./packages/*/test",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b && cd packages/web && bun run check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
