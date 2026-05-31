@@ -18,6 +18,7 @@
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
     "@pocketpatch/config": "workspace:*",
+    "@pocketpatch/git": "workspace:*",
     "@pocketpatch/network": "workspace:*",
     "@pocketpatch/storage": "workspace:*",
     "effect": "^3.21.2"

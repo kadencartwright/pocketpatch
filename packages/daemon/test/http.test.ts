@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { GitCommandError, GitService } from "@pocketpatch/git";
 import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import * as Daemon from "../src/index";
@@ -22,6 +23,51 @@ const StorageTest = Layer.succeed(StorageService, {
     }),
 });
 
+const GitTest = Layer.succeed(GitService, {
+  inspectRepository: ({ path }) =>
+    Effect.succeed({
+      diffs: [
+        {
+          binary: false,
+          hunks: [
+            {
+              header: "",
+              lines: [
+                {
+                  content: "export const value = 2;",
+                  kind: "add" as const,
+                  newLineNumber: 1,
+                  oldLineNumber: null,
+                },
+              ],
+              newLines: 1,
+              newStart: 1,
+              oldLines: 0,
+              oldStart: 0,
+            },
+          ],
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified" as const,
+          truncated: false,
+        },
+      ],
+      files: [
+        {
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified" as const,
+        },
+      ],
+      path,
+      ref: {
+        branch: "main",
+        displayName: "main",
+        head: "0123456789abcdef0123456789abcdef01234567",
+      },
+    }),
+});
+
 describe("daemon HTTP handler", () => {
   test("DaemonHttpService handles requests through an Effect layer", async () => {
     const response = await Effect.runPromise(
@@ -33,6 +79,7 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
@@ -59,6 +106,7 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
@@ -93,6 +141,7 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
@@ -125,6 +174,7 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
@@ -142,6 +192,7 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
@@ -167,10 +218,121 @@ describe("daemon HTTP handler", () => {
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
       ),
     );
 
     expect(response.status).toBe(404);
+  });
+
+  test("DaemonHttpService gets project diffs", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/diff"),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      diffs: [
+        {
+          binary: false,
+          hunks: [
+            {
+              header: "",
+              lines: [
+                {
+                  content: "export const value = 2;",
+                  kind: "add",
+                  newLineNumber: 1,
+                  oldLineNumber: null,
+                },
+              ],
+              newLines: 1,
+              newStart: 1,
+              oldLines: 0,
+              oldStart: 0,
+            },
+          ],
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified",
+          truncated: false,
+        },
+      ],
+      files: [
+        {
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified",
+        },
+      ],
+      project: {
+        createdAt: "2026-05-29T12:00:00.000Z",
+        id: 1,
+        lastSeenAt: "2026-05-29T12:00:00.000Z",
+        path: "/home/k/code/pocketpatch",
+      },
+      ref: {
+        branch: "main",
+        displayName: "main",
+        head: "0123456789abcdef0123456789abcdef01234567",
+      },
+    });
+  });
+
+  test("DaemonHttpService returns 404 for missing project diffs", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/404/diff"),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  test("DaemonHttpService maps git inspection failures to 500", async () => {
+    const GitFailingTest = Layer.succeed(GitService, {
+      inspectRepository: ({ path }) =>
+        Effect.fail(
+          new GitCommandError({
+            args: ["status"],
+            cause: "boom",
+            cwd: path,
+          }),
+        ),
+    });
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/diff"),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitFailingTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(500);
   });
 });

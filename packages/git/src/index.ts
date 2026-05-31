@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,11 +13,31 @@ export type GitFileStatus =
   | "renamed"
   | "untracked";
 
+export const GitFileStatusSchema = Schema.Literal(
+  "added",
+  "deleted",
+  "modified",
+  "renamed",
+  "untracked",
+);
+
+export const GitRefSchema = Schema.Struct({
+  branch: Schema.NullOr(Schema.String),
+  displayName: Schema.String,
+  head: Schema.String,
+});
+
 export type GitRef = {
   readonly branch: string | null;
   readonly displayName: string;
   readonly head: string;
 };
+
+export const ChangedFileSchema = Schema.Struct({
+  oldPath: Schema.NullOr(Schema.String),
+  path: Schema.String,
+  status: GitFileStatusSchema,
+});
 
 export type ChangedFile = {
   readonly oldPath: string | null;
@@ -25,12 +45,28 @@ export type ChangedFile = {
   readonly status: GitFileStatus;
 };
 
+export const DiffLineSchema = Schema.Struct({
+  content: Schema.String,
+  kind: Schema.Literal("add", "context", "delete"),
+  newLineNumber: Schema.NullOr(Schema.Number),
+  oldLineNumber: Schema.NullOr(Schema.Number),
+});
+
 export type DiffLine = {
   readonly content: string;
   readonly kind: "add" | "context" | "delete";
   readonly newLineNumber: number | null;
   readonly oldLineNumber: number | null;
 };
+
+export const DiffHunkSchema = Schema.Struct({
+  header: Schema.String,
+  lines: Schema.Array(DiffLineSchema),
+  newLines: Schema.Number,
+  newStart: Schema.Number,
+  oldLines: Schema.Number,
+  oldStart: Schema.Number,
+});
 
 export type DiffHunk = {
   readonly header: string;
@@ -41,11 +77,27 @@ export type DiffHunk = {
   readonly oldStart: number;
 };
 
+export const FileDiffSchema = Schema.Struct({
+  binary: Schema.Boolean,
+  hunks: Schema.Array(DiffHunkSchema),
+  oldPath: Schema.NullOr(Schema.String),
+  path: Schema.String,
+  status: GitFileStatusSchema,
+  truncated: Schema.Boolean,
+});
+
 export type FileDiff = ChangedFile & {
   readonly binary: boolean;
   readonly hunks: ReadonlyArray<DiffHunk>;
   readonly truncated: boolean;
 };
+
+export const RepositorySnapshotSchema = Schema.Struct({
+  diffs: Schema.Array(FileDiffSchema),
+  files: Schema.Array(ChangedFileSchema),
+  path: Schema.String,
+  ref: GitRefSchema,
+});
 
 export type RepositorySnapshot = {
   readonly diffs: ReadonlyArray<FileDiff>;
@@ -509,3 +561,14 @@ export const inspectRepository = ({
       },
     };
   });
+
+export class GitService extends Context.Tag("@pocketpatch/git/GitService")<
+  GitService,
+  {
+    readonly inspectRepository: typeof inspectRepository;
+  }
+>() {}
+
+export const GitServiceLive = Layer.succeed(GitService, {
+  inspectRepository,
+});

@@ -6,6 +6,7 @@ import {
   OpenApi,
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
+import { GitService } from "@pocketpatch/git";
 import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import * as Daemon from "../src/index";
@@ -29,6 +30,35 @@ const StorageTest = Layer.succeed(StorageService, {
     }),
 });
 
+const GitTest = Layer.succeed(GitService, {
+  inspectRepository: ({ path }) =>
+    Effect.succeed({
+      diffs: [
+        {
+          binary: false,
+          hunks: [],
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified",
+          truncated: false,
+        },
+      ],
+      files: [
+        {
+          oldPath: null,
+          path: "tracked.ts",
+          status: "modified",
+        },
+      ],
+      path,
+      ref: {
+        branch: "main",
+        displayName: "main",
+        head: "0123456789abcdef0123456789abcdef01234567",
+      },
+    }),
+});
+
 describe("daemon Effect HTTP app", () => {
   test("declares the current routes in the PocketPatch HttpApi contract", () => {
     const spec = OpenApi.fromApi(Daemon.PocketPatchApi);
@@ -37,6 +67,7 @@ describe("daemon Effect HTTP app", () => {
       "/health",
       "/projects",
       "/projects/{id}",
+      "/projects/{id}/diff",
     ]);
   });
 
@@ -110,6 +141,56 @@ describe("daemon Effect HTTP app", () => {
         });
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServerLive),
+        Effect.provide(StorageTest),
+        Effect.provide(NodeHttpServer.layerTest),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("serves GET /projects/:id/diff through Effect Platform", async () => {
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const response = yield* HttpClient.get("/projects/1/diff");
+        const body = yield* HttpClientResponse.schemaBodyJson(
+          Daemon.ProjectDiffResponseSchema,
+        )(response);
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({
+          diffs: [
+            {
+              binary: false,
+              hunks: [],
+              oldPath: null,
+              path: "tracked.ts",
+              status: "modified",
+              truncated: false,
+            },
+          ],
+          files: [
+            {
+              oldPath: null,
+              path: "tracked.ts",
+              status: "modified",
+            },
+          ],
+          project: {
+            createdAt: "2026-05-29T12:00:00.000Z",
+            id: 1,
+            lastSeenAt: "2026-05-29T12:00:00.000Z",
+            path: "/home/k/code/pocketpatch",
+          },
+          ref: {
+            branch: "main",
+            displayName: "main",
+            head: "0123456789abcdef0123456789abcdef01234567",
+          },
+        });
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServerLive),
+        Effect.provide(GitTest),
         Effect.provide(StorageTest),
         Effect.provide(NodeHttpServer.layerTest),
       ),

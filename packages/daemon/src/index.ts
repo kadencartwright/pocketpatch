@@ -11,6 +11,14 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import type { ConfigEnv } from "@pocketpatch/config";
 import { ConfigService } from "@pocketpatch/config";
+import {
+  ChangedFileSchema,
+  FileDiffSchema,
+  GitCommandError,
+  GitRefSchema,
+  GitService,
+  GitServiceLive,
+} from "@pocketpatch/git";
 import { NetworkService } from "@pocketpatch/network";
 import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import type { Scope } from "effect";
@@ -54,9 +62,17 @@ export const ProjectResponseSchema = Schema.Struct({
   project: ProjectSchema,
 });
 
+export const ProjectDiffResponseSchema = Schema.Struct({
+  diffs: Schema.Array(FileDiffSchema),
+  files: Schema.Array(ChangedFileSchema),
+  project: ProjectSchema,
+  ref: GitRefSchema,
+});
+
 type ProjectRegistrationResponse =
   typeof ProjectRegistrationResponseSchema.Type;
 type ProjectResponse = typeof ProjectResponseSchema.Type;
+type ProjectDiffResponse = typeof ProjectDiffResponseSchema.Type;
 
 export const planDaemonStartup = (env: ConfigEnv) =>
   Effect.gen(function* () {
@@ -91,6 +107,20 @@ const makeProjectResponse = (
   project,
 });
 
+const makeProjectDiffResponse = (
+  project: typeof ProjectSchema.Type,
+  snapshot: {
+    readonly diffs: ReadonlyArray<typeof FileDiffSchema.Type>;
+    readonly files: ReadonlyArray<typeof ChangedFileSchema.Type>;
+    readonly ref: typeof GitRefSchema.Type;
+  },
+): ProjectDiffResponse => ({
+  diffs: snapshot.diffs,
+  files: snapshot.files,
+  project,
+  ref: snapshot.ref,
+});
+
 const originFromServerRequest = (
   request: HttpServerRequest.HttpServerRequest,
 ): string => {
@@ -112,6 +142,15 @@ export class ProjectHttpNotFound extends Schema.TaggedClass<ProjectHttpNotFound>
   HttpApiSchema.annotations({ status: 404 }),
 ) {}
 
+export class ProjectDiffInspectionError extends Schema.TaggedClass<ProjectDiffInspectionError>()(
+  "ProjectDiffInspectionError",
+  {
+    message: Schema.String,
+    projectId: Schema.Number,
+  },
+  HttpApiSchema.annotations({ status: 500 }),
+) {}
+
 export class HealthApi extends HttpApiGroup.make("health", {
   topLevel: true,
 }).add(
@@ -130,6 +169,14 @@ export class ProjectsApi extends HttpApiGroup.make("projects")
     )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}`
       .addSuccess(ProjectResponseSchema)
       .addError(ProjectHttpNotFound),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "diff",
+    )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/diff`
+      .addSuccess(ProjectDiffResponseSchema)
+      .addError(ProjectHttpNotFound)
+      .addError(ProjectDiffInspectionError),
   ) {}
 
 export class PocketPatchApi extends HttpApi.make("pocketpatch")
@@ -180,6 +227,39 @@ const ProjectsApiLive = HttpApiBuilder.group(
 
           return makeProjectResponse(project);
         }),
+      )
+      .handle("diff", ({ path }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+          const git = yield* GitService;
+          const project = yield* storage
+            .getProject(path.id)
+            .pipe(
+              Effect.catchAll((error) =>
+                error instanceof ProjectNotFoundError
+                  ? Effect.fail(new ProjectHttpNotFound({ id: path.id }))
+                  : Effect.die(error),
+              ),
+            );
+          const snapshot = yield* git
+            .inspectRepository({
+              path: project.path,
+            })
+            .pipe(
+              Effect.catchAll((error) =>
+                error instanceof GitCommandError
+                  ? Effect.fail(
+                      new ProjectDiffInspectionError({
+                        message: error.message,
+                        projectId: path.id,
+                      }),
+                    )
+                  : Effect.die(error),
+              ),
+            );
+
+          return makeProjectDiffResponse(project, snapshot);
+        }),
       ),
 );
 
@@ -205,8 +285,10 @@ export const DaemonHttpServiceLive = Layer.scoped(
   DaemonHttpService,
   Effect.gen(function* () {
     const storage = yield* StorageService;
+    const git = yield* GitService;
     const apiLive = PocketPatchApiLive.pipe(
       Layer.provide(Layer.succeed(StorageService, storage)),
+      Layer.provide(Layer.succeed(GitService, git)),
     );
     const apiHandler = HttpApiBuilder.toWebHandler(
       Layer.mergeAll(apiLive, HttpServer.layerContext),
@@ -266,6 +348,7 @@ export const DaemonServerFactoryLive = Layer.effect(
       bind: (endpoint) =>
         Layer.build(DaemonHttpServerLive).pipe(
           Effect.provideService(StorageService, storage),
+          Effect.provide(GitServiceLive),
           Effect.provide(
             NodeHttpServer.layer(() => createServer(), {
               host: endpoint.address,
