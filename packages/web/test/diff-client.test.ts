@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildProjectCommentsUrl,
   buildProjectDiffUrl,
   createDiffViewModel,
+  createProjectComment,
+  fetchProjectComments,
   fetchProjectDiff,
 } from "../src/lib/diff-client";
 
@@ -72,6 +75,12 @@ describe("diff client", () => {
     );
   });
 
+  test("builds daemon project comment URLs", () => {
+    expect(buildProjectCommentsUrl("http://127.0.0.1:3217", "42")).toBe(
+      "http://127.0.0.1:3217/projects/42/comments",
+    );
+  });
+
   test("fetches project diffs from the daemon", async () => {
     const response = await fetchProjectDiff({
       daemonBaseUrl: "http://daemon.test",
@@ -96,6 +105,79 @@ describe("diff client", () => {
         projectId: "404",
       }),
     ).rejects.toThrow("Failed to load project diff: 404");
+  });
+
+  test("fetches project comments from the daemon", async () => {
+    const response = await fetchProjectComments({
+      daemonBaseUrl: "http://daemon.test",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            comments: [
+              {
+                body: "Prefer the Effect helper here.",
+                createdAt: "2026-05-29T12:00:00.000Z",
+                filePath: "src/example.ts",
+                id: 1,
+                newLineNumber: 1,
+                oldLineNumber: null,
+                projectId: 1,
+              },
+            ],
+          }),
+        ),
+      projectId: "1",
+    });
+
+    expect(response.comments).toHaveLength(1);
+    expect(response.comments[0]?.body).toBe("Prefer the Effect helper here.");
+  });
+
+  test("creates project comments through the daemon", async () => {
+    const requests: Array<{ body: unknown; input: RequestInfo | URL }> = [];
+    const response = await createProjectComment({
+      comment: {
+        body: "Prefer the Effect helper here.",
+        filePath: "src/example.ts",
+        newLineNumber: 1,
+        oldLineNumber: null,
+      },
+      daemonBaseUrl: "http://daemon.test",
+      fetch: async (input, init) => {
+        requests.push({
+          body: JSON.parse(String(init?.body)),
+          input,
+        });
+
+        return new Response(
+          JSON.stringify({
+            comment: {
+              body: "Prefer the Effect helper here.",
+              createdAt: "2026-05-29T12:00:00.000Z",
+              filePath: "src/example.ts",
+              id: 1,
+              newLineNumber: 1,
+              oldLineNumber: null,
+              projectId: 1,
+            },
+          }),
+        );
+      },
+      projectId: "1",
+    });
+
+    expect(requests).toEqual([
+      {
+        body: {
+          body: "Prefer the Effect helper here.",
+          filePath: "src/example.ts",
+          newLineNumber: 1,
+          oldLineNumber: null,
+        },
+        input: "http://daemon.test/projects/1/comments",
+      },
+    ]);
+    expect(response.comment.id).toBe(1);
   });
 
   test("creates a compact view model for the read-only diff page", () => {

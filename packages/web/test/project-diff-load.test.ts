@@ -5,29 +5,45 @@ describe("project diff loader", () => {
   test("loads diff data and summary for a project", async () => {
     const result = await loadProjectDiff({
       daemonBaseUrl: "http://daemon.test",
-      fetch: async () =>
+      fetch: async (input) =>
         new Response(
-          JSON.stringify({
-            diffs: [],
-            files: [
-              {
-                oldPath: null,
-                path: "src/example.ts",
-                status: "modified",
-              },
-            ],
-            project: {
-              createdAt: "2026-05-29T12:00:00.000Z",
-              id: 1,
-              lastSeenAt: "2026-05-29T12:00:00.000Z",
-              path: "/home/k/code/pocketpatch",
-            },
-            ref: {
-              branch: "main",
-              displayName: "main",
-              head: "0123456789abcdef0123456789abcdef01234567",
-            },
-          }),
+          JSON.stringify(
+            String(input).endsWith("/comments")
+              ? {
+                  comments: [
+                    {
+                      body: "Prefer the Effect helper here.",
+                      createdAt: "2026-05-29T12:00:00.000Z",
+                      filePath: "src/example.ts",
+                      id: 1,
+                      newLineNumber: 1,
+                      oldLineNumber: null,
+                      projectId: 1,
+                    },
+                  ],
+                }
+              : {
+                  diffs: [],
+                  files: [
+                    {
+                      oldPath: null,
+                      path: "src/example.ts",
+                      status: "modified",
+                    },
+                  ],
+                  project: {
+                    createdAt: "2026-05-29T12:00:00.000Z",
+                    id: 1,
+                    lastSeenAt: "2026-05-29T12:00:00.000Z",
+                    path: "/home/k/code/pocketpatch",
+                  },
+                  ref: {
+                    branch: "main",
+                    displayName: "main",
+                    head: "0123456789abcdef0123456789abcdef01234567",
+                  },
+                },
+          ),
         ),
       projectId: "1",
     });
@@ -41,5 +57,6 @@ describe("project diff loader", () => {
     });
     expect(result.diff.files).toHaveLength(1);
     expect(result.highlightedDiff.files).toHaveLength(1);
+    expect(result.commentsByLine["src/example.ts:new:1"]).toHaveLength(1);
   });
 });
