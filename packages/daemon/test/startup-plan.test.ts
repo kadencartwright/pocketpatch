@@ -63,7 +63,10 @@ describe("daemon startup planning", () => {
         port: 3217
       }
     };
-    const error = new BindAddressNotFoundError("100.64.99.99", []);
+    const error = new BindAddressNotFoundError({
+      address: "100.64.99.99",
+      availableAddresses: []
+    });
     const ConfigTest = Layer.succeed(ConfigService, {
       load: () => Effect.succeed(config),
       paths: () => Effect.die("unused"),

@@ -1,7 +1,7 @@
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Cause, Effect, Either, Exit } from "effect";
 import * as Storage from "../src/index";
 
 const SqliteMemory = SqliteClient.layer({
@@ -48,5 +48,47 @@ describe("project storage", () => {
     expect(result.second.id).toBe(result.first.id);
     expect(result.second.path).toBe(result.first.path);
     expect(result.rows).toHaveLength(1);
+  });
+
+  test("gets a registered project by id", async () => {
+    const result = await runStorage(
+      Effect.gen(function*() {
+        const storage = yield* Storage.StorageService;
+        const registered = yield* storage.registerProject("/home/k/code/pocketpatch");
+
+        return yield* storage.getProject(registered.id);
+      })
+    );
+
+    expect(result).toEqual({
+      createdAt: expect.any(String),
+      id: 1,
+      lastSeenAt: expect.any(String),
+      path: "/home/k/code/pocketpatch"
+    });
+  });
+
+  test("fails with ProjectNotFoundError when a project id is missing", async () => {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function*() {
+        const storage = yield* Storage.StorageService;
+
+        return yield* storage.getProject(404);
+      }).pipe(
+        Effect.provide(Storage.StorageServiceLive),
+        Effect.provide(SqliteMemory)
+      )
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOrCause(exit.cause);
+
+      expect(Either.isLeft(failure)).toBe(true);
+      if (Either.isLeft(failure)) {
+        expect(failure.left).toBeInstanceOf(Storage.ProjectNotFoundError);
+        expect(failure.left.projectId).toBe(404);
+      }
+    }
   });
 });

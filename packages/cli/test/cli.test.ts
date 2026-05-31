@@ -304,7 +304,9 @@ describe("runCli", () => {
 
   test("returns a daemon start hint when registration cannot reach the daemon", async () => {
     const DaemonClientFailingTest = Layer.succeed(DaemonClientService, {
-      registerProject: () => Effect.fail(new DaemonClientError(new Error("connection refused")))
+      registerProject: () => Effect.fail(new DaemonClientError({
+        cause: new Error("connection refused")
+      }))
     });
 
     const result = await Effect.runPromise(

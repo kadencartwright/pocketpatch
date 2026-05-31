@@ -1,15 +1,17 @@
 import type { PocketPatchConfig } from "@pocketpatch/config";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { networkInterfaces } from "node:os";
 
 export type AddressFamily = "IPv4" | "IPv6";
 
-export type LocalAddress = {
-  readonly address: string;
-  readonly family: AddressFamily;
-  readonly interfaceName: string;
-  readonly internal: boolean;
-};
+export const LocalAddressSchema = Schema.Struct({
+  address: Schema.String,
+  family: Schema.Literal("IPv4", "IPv6"),
+  interfaceName: Schema.String,
+  internal: Schema.Boolean
+});
+
+export type LocalAddress = typeof LocalAddressSchema.Type;
 
 type NetworkInterfaceInfo = {
   readonly address: string;
@@ -39,15 +41,15 @@ export const listLocalAddressesFromInterfaces = (interfaces: NetworkInterfaces):
 export const listLocalAddresses = (): Array<LocalAddress> =>
   listLocalAddressesFromInterfaces(networkInterfaces());
 
-export class BindAddressNotFoundError extends Error {
-  readonly _tag = "BindAddressNotFoundError";
-  readonly address: string;
-  readonly availableAddresses: ReadonlyArray<LocalAddress>;
-
-  constructor(address: string, availableAddresses: ReadonlyArray<LocalAddress>) {
-    super(`Configured bind address ${address} was not found on this machine`);
-    this.address = address;
-    this.availableAddresses = availableAddresses;
+export class BindAddressNotFoundError extends Schema.TaggedError<BindAddressNotFoundError>()(
+  "BindAddressNotFoundError",
+  {
+    address: Schema.String,
+    availableAddresses: Schema.Array(LocalAddressSchema)
+  }
+) {
+  override get message(): string {
+    return `Configured bind address ${this.address} was not found on this machine`;
   }
 }
 
@@ -64,7 +66,10 @@ export const validateBindAddress = (
     return match;
   }
 
-  throw new BindAddressNotFoundError(bindAddress, addresses);
+  throw new BindAddressNotFoundError({
+    address: bindAddress,
+    availableAddresses: addresses
+  });
 };
 
 const isLocalhostAddress = (address: LocalAddress): boolean =>
@@ -100,7 +105,10 @@ export const validateBindAddressEffect = (
     catch: (error) =>
       error instanceof BindAddressNotFoundError
         ? error
-        : new BindAddressNotFoundError(String(bindAddress), addresses),
+        : new BindAddressNotFoundError({
+          address: String(bindAddress),
+          availableAddresses: addresses
+        }),
     try: () => validateBindAddress(bindAddress, addresses)
   });
 
@@ -112,7 +120,10 @@ export const computeListenAddressesForConfigEffect = (
     catch: (error) =>
       error instanceof BindAddressNotFoundError
         ? error
-        : new BindAddressNotFoundError(String(config.network.bindAddress), addresses),
+        : new BindAddressNotFoundError({
+          address: String(config.network.bindAddress),
+          availableAddresses: addresses
+        }),
     try: () => computeListenAddressesForConfig(config, addresses)
   });
 

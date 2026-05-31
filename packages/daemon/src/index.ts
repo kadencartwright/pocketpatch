@@ -1,8 +1,16 @@
 import type { ConfigEnv } from "@pocketpatch/config";
 import { ConfigService } from "@pocketpatch/config";
 import { NetworkService } from "@pocketpatch/network";
-import { StorageService } from "@pocketpatch/storage";
-import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+  HttpServer,
+  HttpServerRequest
+} from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Scope } from "effect";
@@ -12,6 +20,11 @@ export type DaemonEndpoint = {
   readonly address: string;
   readonly port: number;
 };
+
+export const DaemonEndpointSchema = Schema.Struct({
+  address: Schema.String,
+  port: Schema.Number
+});
 
 export type DaemonStartupPlan = {
   readonly endpoints: ReadonlyArray<DaemonEndpoint>;
@@ -37,7 +50,12 @@ export const ProjectRegistrationResponseSchema = Schema.Struct({
   reviewUrl: Schema.String
 });
 
+export const ProjectResponseSchema = Schema.Struct({
+  project: ProjectSchema
+});
+
 type ProjectRegistrationResponse = typeof ProjectRegistrationResponseSchema.Type;
+type ProjectResponse = typeof ProjectResponseSchema.Type;
 
 export const planDaemonStartup = (env: ConfigEnv) =>
   Effect.gen(function*() {
@@ -54,16 +72,6 @@ export const planDaemonStartup = (env: ConfigEnv) =>
     };
   });
 
-export const handleDaemonRequest = async (request: Request): Promise<Response> => {
-  const url = new URL(request.url);
-
-  if (request.method === "GET" && url.pathname === "/health") {
-    return Response.json({ ok: true });
-  }
-
-  return new Response("Not found", { status: 404 });
-};
-
 const makeProjectReviewUrl = (
   origin: string,
   projectId: number
@@ -78,6 +86,12 @@ const makeProjectRegistrationResponse = (
   reviewUrl: makeProjectReviewUrl(origin, project.id)
 });
 
+const makeProjectResponse = (
+  project: typeof ProjectSchema.Type
+): ProjectResponse => ({
+  project
+});
+
 const originFromServerRequest = (request: HttpServerRequest.HttpServerRequest): string => {
   if (request.url.startsWith("http://") || request.url.startsWith("https://")) {
     return new URL(request.url).origin;
@@ -89,99 +103,124 @@ const originFromServerRequest = (request: HttpServerRequest.HttpServerRequest): 
   return `${protocol}://${host}`;
 };
 
-export const handleDaemonRequestEffect = (
-  request: Request
-): Effect.Effect<Response, never, StorageService> => {
-  const url = new URL(request.url);
+export class ProjectHttpNotFound extends Schema.TaggedClass<ProjectHttpNotFound>()(
+  "ProjectHttpNotFound",
+  {
+    id: Schema.Number
+  },
+  HttpApiSchema.annotations({ status: 404 })
+) {}
 
-  if (request.method === "GET" && url.pathname === "/health") {
-    return Effect.succeed(Response.json({ ok: true }));
-  }
+export class HealthApi extends HttpApiGroup.make("health", { topLevel: true })
+  .add(
+    HttpApiEndpoint.get("health")`/health`
+      .addSuccess(HealthResponseSchema)
+  )
+{}
 
-  if (request.method === "POST" && url.pathname === "/projects") {
-    return Effect.gen(function*() {
-      const parsed = yield* Effect.promise(async () => {
-        try {
-          return await request.json() as unknown;
-        } catch {
-          return null;
-        }
-      });
-      const decoded = yield* Schema.decodeUnknown(RegisterProjectRequestSchema)(parsed).pipe(
-        Effect.catchAll(() => Effect.succeed(null))
-      );
+export class ProjectsApi extends HttpApiGroup.make("projects")
+  .add(
+    HttpApiEndpoint.post("register")`/projects`
+      .setPayload(RegisterProjectRequestSchema)
+      .addSuccess(ProjectRegistrationResponseSchema, { status: 201 })
+  )
+  .add(
+    HttpApiEndpoint.get("get")`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}`
+      .addSuccess(ProjectResponseSchema)
+      .addError(ProjectHttpNotFound)
+  )
+{}
 
-      if (decoded === null) {
-        return Response.json({ error: "Invalid project registration request" }, { status: 400 });
-      }
+export class PocketPatchApi extends HttpApi.make("pocketpatch")
+  .add(HealthApi)
+  .add(ProjectsApi)
+{}
 
-      const storage = yield* StorageService;
-      const project = yield* storage.registerProject(decoded.path).pipe(
-        Effect.catchAll(() =>
-          Effect.succeed(null)
-        )
-      );
+const HealthApiLive = HttpApiBuilder.group(
+  PocketPatchApi,
+  "health",
+  (handlers) =>
+    handlers.handle("health", () =>
+      Effect.succeed({
+        ok: true
+      }))
+);
 
-      if (project === null) {
-        return Response.json({ error: "Failed to register project" }, { status: 500 });
-      }
+const ProjectsApiLive = HttpApiBuilder.group(
+  PocketPatchApi,
+  "projects",
+  (handlers) =>
+    handlers
+      .handle("register", ({ payload, request }) =>
+        Effect.gen(function*() {
+          const storage = yield* StorageService;
+          const project = yield* storage.registerProject(payload.path).pipe(Effect.orDie);
 
-      return Response.json(makeProjectRegistrationResponse(url.origin, project), { status: 201 });
-    });
-  }
-
-  return Effect.succeed(new Response("Not found", { status: 404 }));
-};
-
-export const makeDaemonHttpApp = () =>
-  HttpRouter.empty.pipe(
-    HttpRouter.get("/health", HttpServerResponse.json({ ok: true })),
-    HttpRouter.post(
-      "/projects",
-      Effect.gen(function*() {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* HttpServerRequest.schemaBodyJson(RegisterProjectRequestSchema).pipe(
-          Effect.catchAll(() => Effect.succeed(null))
-        );
-
-        if (body === null) {
-          return yield* HttpServerResponse.json(
-            { error: "Invalid project registration request" },
-            { status: 400 }
+          return makeProjectRegistrationResponse(originFromServerRequest(request), project);
+        }))
+      .handle("get", ({ path }) =>
+        Effect.gen(function*() {
+          const storage = yield* StorageService;
+          const project = yield* storage.getProject(path.id).pipe(
+            Effect.catchAll((error) =>
+              error instanceof ProjectNotFoundError
+                ? Effect.fail(new ProjectHttpNotFound({ id: path.id }))
+                : Effect.die(error)
+            )
           );
-        }
 
-        const storage = yield* StorageService;
-        const project = yield* storage.registerProject(body.path);
+          return makeProjectResponse(project);
+        }))
+);
 
-        return yield* HttpServerResponse.json(
-          makeProjectRegistrationResponse(originFromServerRequest(request), project),
-          { status: 201 }
-        );
-      })
-    )
-  );
+export const PocketPatchApiLive = Layer.provide(HttpApiBuilder.api(PocketPatchApi), [
+  HealthApiLive,
+  ProjectsApiLive
+]);
+
+export const DaemonHttpServerLive = HttpApiBuilder.serve().pipe(
+  Layer.provide(PocketPatchApiLive)
+);
 
 export class DaemonHttpService extends Context.Tag("@pocketpatch/daemon/DaemonHttpService")<
   DaemonHttpService,
   {
-    readonly handle: (request: Request) => Effect.Effect<Response, never, StorageService>;
+    readonly handle: (request: Request) => Effect.Effect<Response>;
   }
 >() {}
 
-export const DaemonHttpServiceLive = Layer.succeed(DaemonHttpService, {
-  handle: handleDaemonRequestEffect
-});
+export const DaemonHttpServiceLive = Layer.scoped(
+  DaemonHttpService,
+  Effect.gen(function*() {
+    const storage = yield* StorageService;
+    const apiLive = PocketPatchApiLive.pipe(
+      Layer.provide(Layer.succeed(StorageService, storage))
+    );
+    const apiHandler = HttpApiBuilder.toWebHandler(
+      Layer.mergeAll(
+        apiLive,
+        HttpServer.layerContext
+      )
+    );
 
-export class DaemonServerBindError extends Error {
-  readonly _tag = "DaemonServerBindError";
-  override readonly cause: unknown;
-  readonly endpoint: DaemonEndpoint;
+    yield* Effect.addFinalizer(() => Effect.promise(() => apiHandler.dispose()));
 
-  constructor(endpoint: DaemonEndpoint, cause: unknown) {
-    super(`Failed to bind daemon server at ${endpoint.address}:${endpoint.port}`);
-    this.cause = cause;
-    this.endpoint = endpoint;
+    return {
+      handle: (request) =>
+        Effect.promise(() => apiHandler.handler(request))
+    };
+  })
+);
+
+export class DaemonServerBindError extends Schema.TaggedError<DaemonServerBindError>()(
+  "DaemonServerBindError",
+  {
+    cause: Schema.Unknown,
+    endpoint: DaemonEndpointSchema
+  }
+) {
+  override get message(): string {
+    return `Failed to bind daemon server at ${this.endpoint.address}:${this.endpoint.port}`;
   }
 }
 
@@ -211,13 +250,17 @@ export const DaemonServerFactoryLive = Layer.effect(
 
     return {
       bind: (endpoint) =>
-        HttpServer.serveEffect(makeDaemonHttpApp()).pipe(
+        Layer.build(DaemonHttpServerLive).pipe(
           Effect.provideService(StorageService, storage),
           Effect.provide(NodeHttpServer.layer(() => createServer(), {
             host: endpoint.address,
             port: endpoint.port
           })),
-          Effect.mapError((cause) => new DaemonServerBindError(endpoint, cause))
+          Effect.asVoid,
+          Effect.mapError((cause) => new DaemonServerBindError({
+            cause,
+            endpoint
+          }))
         )
     };
   })

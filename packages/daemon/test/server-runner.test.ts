@@ -42,7 +42,10 @@ describe("daemon server runner", () => {
       address: "100.64.12.34",
       port: 3217
     };
-    const error = new Daemon.DaemonServerBindError(failingEndpoint, new Error("bind failed"));
+    const error = new Daemon.DaemonServerBindError({
+      cause: new Error("bind failed"),
+      endpoint: failingEndpoint
+    });
     const FactoryTest = Layer.succeed(Daemon.DaemonServerFactory, {
       bind: (endpoint) => {
         if (endpoint.address === failingEndpoint.address) {

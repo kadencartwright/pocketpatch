@@ -49,39 +49,37 @@ export type ConfigPaths = {
   readonly stateDb: string;
 };
 
-export class ConfigPathError extends Error {
-  readonly _tag = "ConfigPathError";
-  readonly variable: string;
-
-  constructor(variable: string) {
-    super(`Missing ${variable}; set XDG paths or HOME`);
-    this.variable = variable;
+export class ConfigPathError extends Schema.TaggedError<ConfigPathError>()(
+  "ConfigPathError",
+  {
+    variable: Schema.String
+  }
+) {
+  override get message(): string {
+    return `Missing ${this.variable}; set XDG paths or HOME`;
   }
 }
 
-export class ConfigJsonParseError extends Error {
-  readonly _tag = "ConfigJsonParseError";
-  override readonly cause: unknown;
-  readonly path: string;
-
-  constructor(path: string, cause: unknown) {
-    super(`Invalid JSON config at ${path}`);
-    this.cause = cause;
-    this.path = path;
+export class ConfigJsonParseError extends Schema.TaggedError<ConfigJsonParseError>()(
+  "ConfigJsonParseError",
+  {
+    cause: Schema.Unknown,
+    path: Schema.String
+  }
+) {
+  override get message(): string {
+    return `Invalid JSON config at ${this.path}`;
   }
 }
 
-export class ConfigValidationError extends Error {
-  readonly _tag = "ConfigValidationError";
-  override readonly cause: unknown;
-  readonly path: string;
-
-  constructor(path: string, cause: unknown, message: string) {
-    super(message);
-    this.cause = cause;
-    this.path = path;
+export class ConfigValidationError extends Schema.TaggedError<ConfigValidationError>()(
+  "ConfigValidationError",
+  {
+    cause: Schema.Unknown,
+    message: Schema.String,
+    path: Schema.String
   }
-}
+) {}
 
 const runPromiseDomain = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
   const exit = await Effect.runPromiseExit(effect);
@@ -94,7 +92,7 @@ const runPromiseDomain = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> =
 
 const resolveHome = (env: ConfigEnv): Effect.Effect<string, ConfigPathError> =>
   env.HOME === undefined || env.HOME === ""
-    ? Effect.fail(new ConfigPathError("HOME"))
+    ? Effect.fail(new ConfigPathError({ variable: "HOME" }))
     : Effect.succeed(env.HOME);
 
 const resolveWithHome = (
@@ -139,7 +137,10 @@ export const readConfigEffect = (env: ConfigEnv) =>
     try {
       parsed = JSON.parse(contents);
     } catch (error) {
-      return yield* Effect.fail(new ConfigJsonParseError(paths.configFile, error));
+      return yield* Effect.fail(new ConfigJsonParseError({
+        cause: error,
+        path: paths.configFile
+      }));
     }
 
     const decoded = yield* Effect.exit(decodeConfigEffect(parsed));
@@ -152,7 +153,11 @@ export const readConfigEffect = (env: ConfigEnv) =>
       ? ParseResult.TreeFormatter.formatErrorSync(cause)
       : String(cause);
 
-    return yield* Effect.fail(new ConfigValidationError(paths.configFile, cause, message));
+    return yield* Effect.fail(new ConfigValidationError({
+      cause,
+      message,
+      path: paths.configFile
+    }));
   });
 
 export const readConfig = (env: ConfigEnv): Promise<PocketPatchConfig> =>

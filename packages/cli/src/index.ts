@@ -8,7 +8,7 @@ import { DaemonControlService, DaemonServerFactory, ProjectRegistrationResponseS
 import type { DaemonEndpoint } from "@pocketpatch/daemon";
 import { NetworkService } from "@pocketpatch/network";
 import type { LocalAddress } from "@pocketpatch/network";
-import { Cause, Console, Context, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Console, Context, Effect, Exit, Layer, Option, Schema } from "effect";
 
 export type CliResult = {
   readonly exitCode: number;
@@ -18,13 +18,14 @@ export type CliResult = {
 
 type ProjectRegistrationResponse = typeof ProjectRegistrationResponseSchema.Type;
 
-export class DaemonClientError extends Error {
-  readonly _tag = "DaemonClientError";
-  override readonly cause: unknown;
-
-  constructor(cause: unknown) {
-    super("PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start");
-    this.cause = cause;
+export class DaemonClientError extends Schema.TaggedError<DaemonClientError>()(
+  "DaemonClientError",
+  {
+    cause: Schema.Unknown
+  }
+) {
+  override get message(): string {
+    return "PocketPatch daemon is not reachable. Start it with: pocketpatch daemon start";
   }
 }
 
@@ -60,7 +61,9 @@ export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
       const response = yield* HttpClient.execute(request);
 
       if (response.status < 200 || response.status >= 300) {
-        return yield* Effect.fail(new DaemonClientError(`Unexpected status ${response.status}`));
+        return yield* Effect.fail(new DaemonClientError({
+          cause: `Unexpected status ${response.status}`
+        }));
       }
 
       return yield* HttpClientResponse.schemaBodyJson(ProjectRegistrationResponseSchema)(response);
@@ -68,7 +71,7 @@ export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
       Effect.mapError((error) =>
         error instanceof DaemonClientError
           ? error
-          : new DaemonClientError(error)
+          : new DaemonClientError({ cause: error })
       )
     )
 });
