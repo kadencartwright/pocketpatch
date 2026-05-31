@@ -48,13 +48,20 @@ export const commentLineKey = ({
   return `${filePath}:file`;
 };
 
-export const groupCommentsByLine = (
+const groupCommentsByLine = (
   comments: ReadonlyArray<ProjectCommentState>,
 ): Record<string, ReadonlyArray<ProjectCommentState>> =>
-  Object.groupBy(comments, commentLineKey) as Record<
-    string,
-    ReadonlyArray<ProjectCommentState>
-  >;
+  comments.reduce<Record<string, Array<ProjectCommentState>>>(
+    (groups, comment) => {
+      const key = commentLineKey(comment);
+
+      groups[key] ??= [];
+      groups[key].push(comment);
+
+      return groups;
+    },
+    {},
+  );
 
 const diffLineKey = (
   filePath: string,
@@ -85,7 +92,7 @@ const buildCurrentLineContentByKey = (
   return lines;
 };
 
-export const addCommentState = (
+const addCommentState = (
   diff: ProjectDiffResponse,
   comments: ReadonlyArray<ProjectComment>,
 ): ReadonlyArray<ProjectCommentState> => {
@@ -112,17 +119,19 @@ export const loadProjectDiff = async ({
   fetch,
   projectId,
 }: LoadProjectDiffOptions): Promise<ProjectDiffPageData> => {
-  const diff = await fetchProjectDiff({
-    daemonBaseUrl,
-    fetch,
-    projectId,
-  });
-  const comments = await fetchProjectComments({
-    daemonBaseUrl,
-    fetch,
-    projectId,
-    showResolved: true,
-  });
+  const [diff, comments] = await Promise.all([
+    fetchProjectDiff({
+      daemonBaseUrl,
+      fetch,
+      projectId,
+    }),
+    fetchProjectComments({
+      daemonBaseUrl,
+      fetch,
+      projectId,
+      showResolved: true,
+    }),
+  ]);
   const commentStates = addCommentState(diff, comments.comments);
   const unresolvedComments = commentStates.filter(
     (comment) => comment.resolvedAt === null,

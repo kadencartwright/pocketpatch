@@ -110,17 +110,34 @@ export type ResolveProjectCommentOptions = ProjectCommentsOptions & {
   readonly commentId: number;
 };
 
-export const buildProjectDiffUrl = (
+const buildUrl = (path: string, daemonBaseUrl: string): string => {
+  const base =
+    daemonBaseUrl.startsWith("http://") || daemonBaseUrl.startsWith("https://")
+      ? daemonBaseUrl
+      : globalThis.location.origin;
+
+  const url = new URL(path, base);
+
+  if (!daemonBaseUrl.startsWith("http")) {
+    url.pathname = `${daemonBaseUrl.replace(/\/$/, "")}${path}`;
+  }
+
+  return url.toString();
+};
+
+const buildProjectDiffUrl = (
   daemonBaseUrl: string,
   projectId: string,
-): string => new URL(`/projects/${projectId}/diff`, daemonBaseUrl).toString();
+): string => buildUrl(`/projects/${projectId}/diff`, daemonBaseUrl);
 
-export const buildProjectCommentsUrl = (
+const buildProjectCommentsUrl = (
   daemonBaseUrl: string,
   projectId: string,
   options: Pick<ProjectCommentsOptions, "showResolved"> = {},
 ): string => {
-  const url = new URL(`/projects/${projectId}/comments`, daemonBaseUrl);
+  const url = new URL(
+    buildUrl(`/projects/${projectId}/comments`, daemonBaseUrl),
+  );
 
   if (options.showResolved === true) {
     url.searchParams.set("showResolved", "true");
@@ -129,15 +146,15 @@ export const buildProjectCommentsUrl = (
   return url.toString();
 };
 
-export const buildResolveProjectCommentUrl = (
+const buildResolveProjectCommentUrl = (
   daemonBaseUrl: string,
   projectId: string,
   commentId: number,
 ): string =>
-  new URL(
+  buildUrl(
     `/projects/${projectId}/comments/${commentId}/resolve`,
     daemonBaseUrl,
-  ).toString();
+  );
 
 export const fetchProjectDiff = async ({
   daemonBaseUrl,
@@ -160,9 +177,11 @@ export const fetchProjectComments = async ({
   showResolved,
 }: ProjectCommentsOptions): Promise<ProjectCommentsResponse> => {
   const response = await fetch(
-    buildProjectCommentsUrl(daemonBaseUrl, projectId, {
-      showResolved,
-    }),
+    buildProjectCommentsUrl(
+      daemonBaseUrl,
+      projectId,
+      showResolved === undefined ? {} : { showResolved },
+    ),
   );
 
   if (!response.ok) {

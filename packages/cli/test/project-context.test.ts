@@ -18,12 +18,12 @@ describe("project context", () => {
       [
         project(1, "/home/k/code"),
         project(2, "/home/k/code/pocketpatch"),
-        project(3, "/home/k/code/pocketpatch/packages/web"),
+        project(3, "/home/k/code/pocketpatch/apps/web"),
       ],
-      "/home/k/code/pocketpatch/packages/web/src/routes",
+      "/home/k/code/pocketpatch/apps/web/src/routes",
     );
 
-    expect(result).toEqual(project(3, "/home/k/code/pocketpatch/packages/web"));
+    expect(result).toEqual(project(3, "/home/k/code/pocketpatch/apps/web"));
   });
 
   test("matches exact project paths and ignores sibling prefixes", () => {

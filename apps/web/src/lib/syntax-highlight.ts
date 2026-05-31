@@ -9,6 +9,7 @@ import type {
 export type SyntaxToken = {
   readonly color: string | null;
   readonly content: string;
+  readonly key: string;
 };
 
 export type HighlightedDiffLine = DiffLine & {
@@ -99,6 +100,7 @@ const fallbackTokens = (line: DiffLine): HighlightedDiffLine => ({
     {
       color: null,
       content: line.content,
+      key: line.content,
     },
   ],
 });
@@ -128,9 +130,10 @@ const highlightHunk = async (
       lines: hunk.lines.map((line, index) => ({
         ...line,
         tokens:
-          highlighted.tokens[index]?.map((token) => ({
+          highlighted.tokens[index]?.map((token, tokenIndex) => ({
             color: token.color ?? null,
             content: token.content,
+            key: `${tokenIndex}:${token.content}:${token.color ?? ""}`,
           })) ?? fallbackTokens(line).tokens,
       })),
     };

@@ -18,6 +18,9 @@
     },
     {
       "path": "./packages/daemon"
+    },
+    {
+      "path": "./apps/web"
     }
   ]
 }

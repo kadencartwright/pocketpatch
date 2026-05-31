@@ -64,6 +64,3 @@ export const commentDrawerCompactLabel = ({
 
   return lineNumber === null ? fileName : `${fileName}:${lineNumber}`;
 };
-
-export const lineNumberFormValue = (lineNumber: number | null): string =>
-  lineNumber === null ? "" : String(lineNumber);

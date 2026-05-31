@@ -4,36 +4,19 @@
     "includes": [
       "packages/**/src/**",
       "packages/**/test/**",
+      "apps/**/src/**",
       "docs/**",
       "*.json",
       "*.jsonc",
       "*.md",
       "*.yml",
       "*.yaml",
-      "!**/.svelte-kit",
       "!**/build",
       "!**/dist",
       "!**/node_modules",
       "!vendor"
     ]
   },
-  "overrides": [
-    {
-      "includes": ["**/*.svelte"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useConst": "off",
-            "useImportType": "off"
-          },
-          "correctness": {
-            "noUnusedVariables": "off",
-            "noUnusedImports": "off"
-          }
-        }
-      }
-    }
-  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

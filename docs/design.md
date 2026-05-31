@@ -19,30 +19,30 @@ This removes the need for v1 project discovery, recursive repository search, and
 
 ## Framework Recommendation
 
-Current leaning: Effect for the CLI and daemon, with SvelteKit + Svelte 5 served by the daemon for the phone review UI.
+Current direction: Effect for the CLI and daemon, with the React/TanStack app in `apps/web` for the phone review UI.
 
-See `docs/stack-options.md` for the stack comparison. The earlier TanStack Start/React direction remains viable, but it is no longer the primary plan.
+See `docs/stack-options.md` for the stack summary.
 
-Why Effect + SvelteKit fits:
+Why Effect + React fits:
 
 - Effect can own the stable agent-facing CLI, daemon lifecycle, daemon API, git execution, persistence, typed errors, and testable services.
-- SvelteKit file-based routing is enough for the small phone UI.
-- SvelteKit server-only modules can keep git and filesystem access out of browser bundles.
-- Vite should keep local development fast.
-- Svelte should be a useful experiment for a dense mobile UI with less client framework ceremony.
+- React with TanStack Router and TanStack Query keeps the phone UI explicit and cache-aware.
+- Vite keeps local development fast.
+- The browser app can talk to the daemon through a dev proxy and later through served static assets or an equivalent daemon route.
 
 Initial stack:
 
-- SvelteKit
-- Svelte 5
+- React
 - TypeScript
 - Effect
 - `@effect/platform-node`
-- `@tanstack/svelte-virtual`
+- TanStack Router
+- TanStack Query
+- `@tanstack/react-virtual` when large diffs require virtualization
 - SQLite for local app state, stored in an XDG user-scoped state directory
 - Direct `git` subprocess calls through an Effect service
 - Shiki for syntax highlighting, loaded lazily per language/theme
-- CSS modules or Tailwind, depending on scaffold friction
+- Tailwind CSS
 
 ## Views
 
@@ -290,7 +290,7 @@ Diff readability:
 
 Diff virtualization is a v1 requirement. Agent diffs can be large enough that rendering every file, hunk, line, syntax token, and comment marker at once would make mobile review unusable.
 
-Use `@tanstack/svelte-virtual` for the main diff scroller.
+Use `@tanstack/react-virtual` for the main diff scroller once large diffs require virtualization.
 
 Initial rendering model:
 
@@ -395,7 +395,7 @@ Runtime should contain active daemon connection material where the platform prov
 
 ### Milestone 1: Local Read-Only Review
 
-- Scaffold SvelteKit app and Effect daemon/CLI package.
+- Scaffold React app and Effect daemon/CLI package.
 - Add `pocketpatch review`.
 - Add `pocketpatch config addresses` and `pocketpatch config set-bind-address`.
 - Auto-start or connect to local daemon.
@@ -425,7 +425,7 @@ Runtime should contain active daemon connection material where the platform prov
 
 ## Decisions To Review
 
-- SvelteKit UI embedded in the daemon vs a simpler Vite/Svelte UI served as static assets.
+- React UI embedded in the daemon vs a Vite dev server/static asset split.
 - SQLite app state vs flat JSON files in XDG user-scoped state/config directories.
 - Unified-only diff for v1 vs early split diff support.
 - Direct `git` subprocesses vs a git library wrapper.
