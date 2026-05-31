@@ -1,10 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { GitCommandError, GitService } from "@pocketpatch/git";
-import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
+import {
+  CommentNotFoundError,
+  ProjectNotFoundError,
+  StorageService,
+} from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
 import * as Daemon from "../src/index";
 
 const StorageTest = Layer.succeed(StorageService, {
+  createComment: (input) =>
+    Effect.succeed({
+      ...input,
+      createdAt: "2026-05-29T12:00:00.000Z",
+      id: 1,
+    }),
+  deleteComment: (projectId, commentId) =>
+    commentId === 1
+      ? Effect.void
+      : Effect.fail(new CommentNotFoundError({ commentId, projectId })),
   getProject: (projectId) =>
     projectId === 1
       ? Effect.succeed({
@@ -14,6 +28,18 @@ const StorageTest = Layer.succeed(StorageService, {
           path: "/home/k/code/pocketpatch",
         })
       : Effect.fail(new ProjectNotFoundError({ projectId })),
+  listComments: (projectId) =>
+    Effect.succeed([
+      {
+        body: "Prefer the Effect helper here.",
+        createdAt: "2026-05-29T12:00:00.000Z",
+        filePath: "packages/daemon/src/index.ts",
+        id: 1,
+        newLineNumber: 353,
+        oldLineNumber: null,
+        projectId,
+      },
+    ]),
   registerProject: (path) =>
     Effect.succeed({
       createdAt: "2026-05-29T12:00:00.000Z",
@@ -334,5 +360,148 @@ describe("daemon HTTP handler", () => {
     );
 
     expect(response.status).toBe(500);
+  });
+
+  test("DaemonHttpService lists project comments", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments"),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      comments: [
+        {
+          body: "Prefer the Effect helper here.",
+          createdAt: "2026-05-29T12:00:00.000Z",
+          filePath: "packages/daemon/src/index.ts",
+          id: 1,
+          newLineNumber: 353,
+          oldLineNumber: null,
+          projectId: 1,
+        },
+      ],
+    });
+  });
+
+  test("DaemonHttpService creates project comments", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments", {
+            body: JSON.stringify({
+              body: "Prefer the Effect helper here.",
+              filePath: "packages/daemon/src/index.ts",
+              newLineNumber: 353,
+              oldLineNumber: null,
+            }),
+            headers: {
+              "content-type": "application/json",
+            },
+            method: "POST",
+          }),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      comment: {
+        body: "Prefer the Effect helper here.",
+        createdAt: "2026-05-29T12:00:00.000Z",
+        filePath: "packages/daemon/src/index.ts",
+        id: 1,
+        newLineNumber: 353,
+        oldLineNumber: null,
+        projectId: 1,
+      },
+    });
+  });
+
+  test("DaemonHttpService rejects malformed comment creation requests", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments", {
+            body: JSON.stringify({
+              body: "",
+              filePath: "packages/daemon/src/index.ts",
+              newLineNumber: 353,
+              oldLineNumber: null,
+            }),
+            headers: {
+              "content-type": "application/json",
+            },
+            method: "POST",
+          }),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  test("DaemonHttpService deletes project comments", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments/1", {
+            method: "DELETE",
+          }),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deleted: true,
+    });
+  });
+
+  test("DaemonHttpService returns 404 for missing project comments", async () => {
+    const response = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* Daemon.DaemonHttpService;
+
+        return yield* service.handle(
+          new Request("http://127.0.0.1:3217/projects/1/comments/404", {
+            method: "DELETE",
+          }),
+        );
+      }).pipe(
+        Effect.provide(Daemon.DaemonHttpServiceLive),
+        Effect.provide(GitTest),
+        Effect.provide(StorageTest),
+      ),
+    );
+
+    expect(response.status).toBe(404);
   });
 });

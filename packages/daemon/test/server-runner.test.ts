@@ -48,8 +48,11 @@ const fetchHealth = async (port: number) => {
 };
 
 const StorageTest = Layer.succeed(StorageService, {
+  createComment: () => Effect.die("unused"),
+  deleteComment: () => Effect.die("unused"),
   getProject: (projectId) =>
     Effect.fail(new ProjectNotFoundError({ projectId })),
+  listComments: () => Effect.die("unused"),
   registerProject: (path) =>
     Effect.succeed({
       createdAt: "2026-05-29T12:00:00.000Z",

@@ -99,4 +99,105 @@ describe("project storage", () => {
       }
     }
   });
+
+  test("creates and lists comments for a project", async () => {
+    const result = await runStorage(
+      Effect.gen(function* () {
+        const storage = yield* Storage.StorageService;
+        const project = yield* storage.registerProject(
+          "/home/k/code/pocketpatch",
+        );
+        const otherProject =
+          yield* storage.registerProject("/home/k/code/other");
+        const first = yield* storage.createComment({
+          body: "Prefer the Effect helper here.",
+          filePath: "packages/daemon/src/index.ts",
+          newLineNumber: 353,
+          oldLineNumber: null,
+          projectId: project.id,
+        });
+        const second = yield* storage.createComment({
+          body: "This branch should be tested.",
+          filePath: "packages/daemon/src/index.ts",
+          newLineNumber: 354,
+          oldLineNumber: null,
+          projectId: project.id,
+        });
+
+        yield* storage.createComment({
+          body: "Other project comment.",
+          filePath: "README.md",
+          newLineNumber: 1,
+          oldLineNumber: null,
+          projectId: otherProject.id,
+        });
+
+        const comments = yield* storage.listComments(project.id);
+
+        return { comments, first, second };
+      }),
+    );
+
+    expect(result.first).toEqual({
+      body: "Prefer the Effect helper here.",
+      createdAt: expect.any(String),
+      filePath: "packages/daemon/src/index.ts",
+      id: 1,
+      newLineNumber: 353,
+      oldLineNumber: null,
+      projectId: 1,
+    });
+    expect(result.comments).toEqual([result.first, result.second]);
+  });
+
+  test("deletes comments by project id and comment id", async () => {
+    const result = await runStorage(
+      Effect.gen(function* () {
+        const storage = yield* Storage.StorageService;
+        const project = yield* storage.registerProject(
+          "/home/k/code/pocketpatch",
+        );
+        const comment = yield* storage.createComment({
+          body: "Remove this.",
+          filePath: "packages/daemon/src/index.ts",
+          newLineNumber: 353,
+          oldLineNumber: null,
+          projectId: project.id,
+        });
+
+        yield* storage.deleteComment(project.id, comment.id);
+
+        return yield* storage.listComments(project.id);
+      }),
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  test("fails with CommentNotFoundError when deleting a missing comment", async () => {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const storage = yield* Storage.StorageService;
+        const project = yield* storage.registerProject(
+          "/home/k/code/pocketpatch",
+        );
+
+        return yield* storage.deleteComment(project.id, 404);
+      }).pipe(
+        Effect.provide(Storage.StorageServiceLive),
+        Effect.provide(SqliteMemory),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOrCause(exit.cause);
+
+      expect(Either.isLeft(failure)).toBe(true);
+      if (Either.isLeft(failure)) {
+        expect(failure.left).toBeInstanceOf(Storage.CommentNotFoundError);
+        expect(failure.left.commentId).toBe(404);
+      }
+    }
+  });
 });

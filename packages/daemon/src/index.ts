@@ -20,7 +20,11 @@ import {
   GitServiceLive,
 } from "@pocketpatch/git";
 import { NetworkService } from "@pocketpatch/network";
-import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
+import {
+  CommentNotFoundError,
+  ProjectNotFoundError,
+  StorageService,
+} from "@pocketpatch/storage";
 import type { Scope } from "effect";
 import { Context, Effect, Layer, Schema } from "effect";
 
@@ -69,10 +73,43 @@ export const ProjectDiffResponseSchema = Schema.Struct({
   ref: GitRefSchema,
 });
 
+export const CommentSchema = Schema.Struct({
+  body: Schema.String,
+  createdAt: Schema.String,
+  filePath: Schema.String,
+  id: Schema.Number,
+  newLineNumber: Schema.NullOr(Schema.Number),
+  oldLineNumber: Schema.NullOr(Schema.Number),
+  projectId: Schema.Number,
+});
+
+export const CreateCommentRequestSchema = Schema.Struct({
+  body: Schema.String.pipe(Schema.minLength(1)),
+  filePath: Schema.String.pipe(Schema.minLength(1)),
+  newLineNumber: Schema.NullOr(Schema.Number),
+  oldLineNumber: Schema.NullOr(Schema.Number),
+});
+
+export const CommentResponseSchema = Schema.Struct({
+  comment: CommentSchema,
+});
+
+export const CommentListResponseSchema = Schema.Struct({
+  comments: Schema.Array(CommentSchema),
+});
+
+export const DeleteCommentResponseSchema = Schema.Struct({
+  deleted: Schema.Boolean,
+});
+
 type ProjectRegistrationResponse =
   typeof ProjectRegistrationResponseSchema.Type;
 type ProjectResponse = typeof ProjectResponseSchema.Type;
 type ProjectDiffResponse = typeof ProjectDiffResponseSchema.Type;
+type CommentResponse = typeof CommentResponseSchema.Type;
+type CommentListResponse = typeof CommentListResponseSchema.Type;
+type DeleteCommentResponse = typeof DeleteCommentResponseSchema.Type;
+type StorageServiceShape = Context.Tag.Service<typeof StorageService>;
 
 export const planDaemonStartup = (env: ConfigEnv) =>
   Effect.gen(function* () {
@@ -121,6 +158,51 @@ const makeProjectDiffResponse = (
   ref: snapshot.ref,
 });
 
+const makeCommentResponse = (
+  comment: typeof CommentSchema.Type,
+): CommentResponse => ({
+  comment,
+});
+
+const makeCommentListResponse = (
+  comments: ReadonlyArray<typeof CommentSchema.Type>,
+): CommentListResponse => ({
+  comments,
+});
+
+const makeDeleteCommentResponse = (): DeleteCommentResponse => ({
+  deleted: true,
+});
+
+const getProjectOrHttpNotFound = (
+  storage: StorageServiceShape,
+  projectId: number,
+) =>
+  storage
+    .getProject(projectId)
+    .pipe(
+      Effect.catchAll((error) =>
+        error instanceof ProjectNotFoundError
+          ? Effect.fail(new ProjectHttpNotFound({ id: projectId }))
+          : Effect.die(error),
+      ),
+    );
+
+const deleteCommentOrHttpNotFound = (
+  storage: StorageServiceShape,
+  projectId: number,
+  commentId: number,
+) =>
+  storage
+    .deleteComment(projectId, commentId)
+    .pipe(
+      Effect.catchAll((error) =>
+        error instanceof CommentNotFoundError
+          ? Effect.fail(new CommentHttpNotFound({ commentId, projectId }))
+          : Effect.die(error),
+      ),
+    );
+
 const originFromServerRequest = (
   request: HttpServerRequest.HttpServerRequest,
 ): string => {
@@ -151,6 +233,15 @@ export class ProjectDiffInspectionError extends Schema.TaggedClass<ProjectDiffIn
   HttpApiSchema.annotations({ status: 500 }),
 ) {}
 
+export class CommentHttpNotFound extends Schema.TaggedClass<CommentHttpNotFound>()(
+  "CommentHttpNotFound",
+  {
+    commentId: Schema.Number,
+    projectId: Schema.Number,
+  },
+  HttpApiSchema.annotations({ status: 404 }),
+) {}
+
 export class HealthApi extends HttpApiGroup.make("health", {
   topLevel: true,
 }).add(
@@ -177,6 +268,29 @@ export class ProjectsApi extends HttpApiGroup.make("projects")
       .addSuccess(ProjectDiffResponseSchema)
       .addError(ProjectHttpNotFound)
       .addError(ProjectDiffInspectionError),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "listComments",
+    )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/comments`
+      .addSuccess(CommentListResponseSchema)
+      .addError(ProjectHttpNotFound),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "createComment",
+    )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/comments`
+      .setPayload(CreateCommentRequestSchema)
+      .addSuccess(CommentResponseSchema, { status: 201 })
+      .addError(ProjectHttpNotFound),
+  )
+  .add(
+    HttpApiEndpoint.del(
+      "deleteComment",
+    )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/comments/${HttpApiSchema.param("commentId", Schema.NumberFromString)}`
+      .addSuccess(DeleteCommentResponseSchema)
+      .addError(ProjectHttpNotFound)
+      .addError(CommentHttpNotFound),
   ) {}
 
 export class PocketPatchApi extends HttpApi.make("pocketpatch")
@@ -215,15 +329,7 @@ const ProjectsApiLive = HttpApiBuilder.group(
       .handle("get", ({ path }) =>
         Effect.gen(function* () {
           const storage = yield* StorageService;
-          const project = yield* storage
-            .getProject(path.id)
-            .pipe(
-              Effect.catchAll((error) =>
-                error instanceof ProjectNotFoundError
-                  ? Effect.fail(new ProjectHttpNotFound({ id: path.id }))
-                  : Effect.die(error),
-              ),
-            );
+          const project = yield* getProjectOrHttpNotFound(storage, path.id);
 
           return makeProjectResponse(project);
         }),
@@ -232,15 +338,7 @@ const ProjectsApiLive = HttpApiBuilder.group(
         Effect.gen(function* () {
           const storage = yield* StorageService;
           const git = yield* GitService;
-          const project = yield* storage
-            .getProject(path.id)
-            .pipe(
-              Effect.catchAll((error) =>
-                error instanceof ProjectNotFoundError
-                  ? Effect.fail(new ProjectHttpNotFound({ id: path.id }))
-                  : Effect.die(error),
-              ),
-            );
+          const project = yield* getProjectOrHttpNotFound(storage, path.id);
           const snapshot = yield* git
             .inspectRepository({
               path: project.path,
@@ -259,6 +357,43 @@ const ProjectsApiLive = HttpApiBuilder.group(
             );
 
           return makeProjectDiffResponse(project, snapshot);
+        }),
+      )
+      .handle("listComments", ({ path }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+
+          yield* getProjectOrHttpNotFound(storage, path.id);
+          const comments = yield* storage
+            .listComments(path.id)
+            .pipe(Effect.orDie);
+
+          return makeCommentListResponse(comments);
+        }),
+      )
+      .handle("createComment", ({ path, payload }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+
+          yield* getProjectOrHttpNotFound(storage, path.id);
+          const comment = yield* storage
+            .createComment({
+              ...payload,
+              projectId: path.id,
+            })
+            .pipe(Effect.orDie);
+
+          return makeCommentResponse(comment);
+        }),
+      )
+      .handle("deleteComment", ({ path }) =>
+        Effect.gen(function* () {
+          const storage = yield* StorageService;
+
+          yield* getProjectOrHttpNotFound(storage, path.id);
+          yield* deleteCommentOrHttpNotFound(storage, path.id, path.commentId);
+
+          return makeDeleteCommentResponse();
         }),
       ),
 );
