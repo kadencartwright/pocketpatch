@@ -1,9 +1,8 @@
 import { Args, Command, ValidationError } from "@effect/cli";
 import {
   type FileSystem,
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
+  HttpApiClient,
+  type HttpClient,
 } from "@effect/platform";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import type { ConfigEnv } from "@pocketpatch/config";
@@ -12,7 +11,8 @@ import type { DaemonEndpoint } from "@pocketpatch/daemon";
 import {
   DaemonControlService,
   type DaemonServerFactory,
-  ProjectRegistrationResponseSchema,
+  PocketPatchApi,
+  type ProjectRegistrationResponseSchema,
 } from "@pocketpatch/daemon";
 import type { LocalAddress } from "@pocketpatch/network";
 import { NetworkService } from "@pocketpatch/network";
@@ -77,22 +77,13 @@ export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
     Effect.gen(function* () {
       const configService = yield* ConfigService;
       const config = yield* configService.load(env);
-      const request = yield* HttpClientRequest.post(
-        `http://127.0.0.1:${config.network.port}/projects`,
-      ).pipe(HttpClientRequest.bodyJson({ path }));
-      const response = yield* HttpClient.execute(request);
+      const client = yield* HttpApiClient.make(PocketPatchApi, {
+        baseUrl: `http://127.0.0.1:${config.network.port}`,
+      });
 
-      if (response.status < 200 || response.status >= 300) {
-        return yield* Effect.fail(
-          new DaemonClientError({
-            cause: `Unexpected status ${response.status}`,
-          }),
-        );
-      }
-
-      return yield* HttpClientResponse.schemaBodyJson(
-        ProjectRegistrationResponseSchema,
-      )(response);
+      return yield* client.projects.register({
+        payload: { path },
+      });
     }).pipe(
       Effect.mapError((error) =>
         error instanceof DaemonClientError

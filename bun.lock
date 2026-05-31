@@ -63,6 +63,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/git": {
+      "name": "@pocketpatch/git",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^3.21.2",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.2",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/network": {
       "name": "@pocketpatch/network",
       "version": "0.0.0",
@@ -180,6 +191,8 @@
     "@pocketpatch/config": ["@pocketpatch/config@workspace:packages/config"],
 
     "@pocketpatch/daemon": ["@pocketpatch/daemon@workspace:packages/daemon"],
+
+    "@pocketpatch/git": ["@pocketpatch/git@workspace:packages/git"],
 
     "@pocketpatch/network": ["@pocketpatch/network@workspace:packages/network"],
 
