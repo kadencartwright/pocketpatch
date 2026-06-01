@@ -311,15 +311,17 @@ const FilesSidebar = ({
 }) => (
   <aside
     aria-label="Changed files"
-    className="border-[#3e4451] border-b bg-[#21252b] p-4 md:sticky md:top-0 md:z-10 md:max-h-screen md:overflow-auto md:border-r md:border-b-0"
+    className="border-[#3e4451] border-b bg-[#21252b] p-3 md:sticky md:top-0 md:z-10 md:max-h-screen md:overflow-auto md:border-r md:border-b-0 md:p-4"
   >
-    <div className="mb-3 flex items-center justify-between gap-2">
-      <h2 className="m-0 font-bold text-base tracking-normal">Files</h2>
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <h2 className="m-0 font-bold text-sm tracking-normal md:text-base">
+        Files
+      </h2>
       <button
         aria-controls="changed-files"
         aria-expanded={!filePickerCollapsed}
         aria-label={filePickerCollapsed ? "Show files" : "Hide files"}
-        className="size-8 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-lg leading-none hover:border-[#61afef] hover:bg-[#2c313a] md:hidden"
+        className="size-7 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-base leading-none hover:border-[#61afef] hover:bg-[#2c313a] md:hidden"
         onClick={() => setFilePickerCollapsed(!filePickerCollapsed)}
         type="button"
       >
@@ -327,26 +329,35 @@ const FilesSidebar = ({
       </button>
     </div>
     <nav
-      className={filePickerCollapsed ? "hidden gap-1 md:grid" : "grid gap-1"}
+      className={
+        filePickerCollapsed ? "hidden gap-0.5 md:grid" : "grid gap-0.5"
+      }
       id="changed-files"
     >
       {data.diff.files.map((file) => (
         <a
-          className="grid gap-0.5 rounded-md px-2.5 py-2 text-[#abb2bf] text-sm no-underline hover:bg-[#2c313a] [overflow-wrap:anywhere]"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-1.5 text-[#abb2bf] text-sm no-underline hover:bg-[#2c313a] md:px-2.5 md:py-2"
           href={`#file-${file.path}`}
           key={file.path}
         >
-          <span className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-bold text-[#61afef] text-xs uppercase tracking-normal">
+          <span className="grid min-w-0 gap-0.5">
+            <span className="font-bold text-[#61afef] text-[10px] uppercase leading-none tracking-normal md:text-xs">
               {file.status}
             </span>
-            <DiffStatsBadge
-              stats={diffStatsByPath.get(file.path) ?? emptyDiffStats}
-            />
+            <span
+              className={[
+                "text-[13px] leading-snug [overflow-wrap:anywhere] md:text-sm",
+                collapsedFiles[file.path] ? "text-[#5c6370]" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              {file.path}
+            </span>
           </span>
-          <span className={collapsedFiles[file.path] ? "text-[#5c6370]" : ""}>
-            {file.path}
-          </span>
+          <DiffStatsBadge
+            stats={diffStatsByPath.get(file.path) ?? emptyDiffStats}
+          />
         </a>
       ))}
     </nav>
