@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { Project } from "@pocketpatch/storage";
+import { describe, expect, test } from "vitest";
 import {
   ProjectContextNotFoundError,
   resolveProjectForCwd,

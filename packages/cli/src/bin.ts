@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import type { ConfigEnv } from "@pocketpatch/config";
 import { runPocketPatchCli } from "./runtime";
 

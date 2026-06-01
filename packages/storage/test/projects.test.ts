@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
 import { SqlClient } from "@effect/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Cause, Effect, Either, Exit } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Storage from "../src/index";
 
 const SqliteMemory = SqliteClient.layer({
@@ -30,8 +30,8 @@ describe("project storage", () => {
 
     expect(project.id).toBe(1);
     expect(project.path).toBe("/home/k/code/pocketpatch");
-    expect(project.createdAt).toBeString();
-    expect(project.lastSeenAt).toBeString();
+    expect(project.createdAt).toEqual(expect.any(String));
+    expect(project.lastSeenAt).toEqual(expect.any(String));
   });
 
   test("registering the same path returns the existing project and updates last_seen_at", async () => {

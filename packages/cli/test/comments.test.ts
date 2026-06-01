@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { Comment, Project } from "@pocketpatch/storage";
+import { describe, expect, test } from "vitest";
 import { formatProjectComments } from "../src/comments";
 
 const project: Project = {

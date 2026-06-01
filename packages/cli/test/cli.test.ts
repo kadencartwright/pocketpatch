@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import type { ConfigEnv, PocketPatchConfig } from "@pocketpatch/config";
 import { ConfigService, setBindAddressEffect } from "@pocketpatch/config";
 import { DaemonControlService, DaemonServerFactory } from "@pocketpatch/daemon";
@@ -10,9 +9,11 @@ import {
   StorageService,
 } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import {
   DaemonClientError,
   DaemonClientService,
+  DaemonSupervisorService,
   runCli,
   WorkingDirectoryService,
 } from "../src/index";
@@ -101,6 +102,10 @@ const DaemonControlTest = Layer.succeed(DaemonControlService, {
 
 const DaemonServerFactoryTest = Layer.succeed(DaemonServerFactory, {
   bind: () => Effect.void,
+});
+
+const DaemonSupervisorTest = Layer.succeed(DaemonSupervisorService, {
+  ensureStarted: () => Effect.void,
 });
 
 const storageTestService = {
@@ -197,6 +202,7 @@ const runTestCli = (args: ReadonlyArray<string>) =>
       Effect.provide(NetworkTest),
       Effect.provide(DaemonControlTest),
       Effect.provide(DaemonServerFactoryTest),
+      Effect.provide(DaemonSupervisorTest),
       Effect.provide(DaemonClientTest),
       Effect.provide(StorageTest),
       Effect.provide(WorkingDirectoryTest),
@@ -296,6 +302,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlStartTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
       ),
     );
 
@@ -331,6 +338,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
         Effect.provide(DaemonClientRegisterTest),
         Effect.provide(WorkingDirectoryTest),
       ),
@@ -368,6 +376,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
         Effect.provide(DaemonClientRegisterTest),
         Effect.provide(WorkingDirectoryTest),
       ),
@@ -379,6 +388,61 @@ describe("runCli", () => {
       stdout: "http://127.0.0.1:3217/projects/8\n",
     });
     expect(registered).toEqual(["/tmp/project"]);
+  });
+
+  test("auto-starts the daemon when registration cannot reach it", async () => {
+    let attempts = 0;
+    const startedWith: Array<ConfigEnv> = [];
+    const DaemonClientStartsOnRetryTest = Layer.succeed(DaemonClientService, {
+      registerProject: (_env, path) =>
+        Effect.suspend(() => {
+          attempts += 1;
+
+          if (attempts === 1) {
+            return Effect.fail(
+              new DaemonClientError({
+                cause: new Error("connection refused"),
+              }),
+            );
+          }
+
+          return Effect.succeed({
+            project: {
+              createdAt: "2026-05-30T12:00:00.000Z",
+              id: 9,
+              lastSeenAt: "2026-05-30T12:00:00.000Z",
+              path,
+            },
+            reviewUrl: "http://127.0.0.1:3217/projects/9",
+          });
+        }),
+    });
+    const DaemonSupervisorStartsTest = Layer.succeed(DaemonSupervisorService, {
+      ensureStarted: (startEnv) =>
+        Effect.sync(() => {
+          startedWith.push(startEnv);
+        }),
+    });
+
+    const result = await Effect.runPromise(
+      runCli(["register"], env).pipe(
+        Effect.provide(ConfigTest),
+        Effect.provide(NetworkTest),
+        Effect.provide(DaemonControlTest),
+        Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorStartsTest),
+        Effect.provide(DaemonClientStartsOnRetryTest),
+        Effect.provide(WorkingDirectoryTest),
+      ),
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "http://127.0.0.1:3217/projects/9\n",
+    });
+    expect(attempts).toBe(2);
+    expect(startedWith).toEqual([env]);
   });
 
   test("returns a daemon start hint when registration cannot reach the daemon", async () => {
@@ -397,6 +461,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
         Effect.provide(DaemonClientFailingTest),
         Effect.provide(WorkingDirectoryTest),
       ),
@@ -446,6 +511,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
         Effect.provide(DaemonClientTest),
         Effect.provide(StorageTest),
         Effect.provide(
@@ -469,6 +535,7 @@ describe("runCli", () => {
         Effect.provide(NetworkTest),
         Effect.provide(DaemonControlTest),
         Effect.provide(DaemonServerFactoryTest),
+        Effect.provide(DaemonSupervisorTest),
         Effect.provide(DaemonClientTest),
         Effect.provide(
           Layer.succeed(StorageService, {

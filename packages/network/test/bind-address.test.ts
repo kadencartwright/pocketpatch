@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import * as Network from "../src/index";
 
 const addresses: Array<Network.LocalAddress> = [

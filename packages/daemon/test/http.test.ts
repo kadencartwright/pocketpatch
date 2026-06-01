@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { GitCommandError, GitService } from "@pocketpatch/git";
 import {
   CommentNotFoundError,
@@ -6,6 +8,7 @@ import {
   StorageService,
 } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Daemon from "../src/index";
 
 const StorageTest = Layer.succeed(StorageService, {
@@ -128,13 +131,39 @@ const GitTest = Layer.succeed(GitService, {
 });
 
 describe("daemon HTTP handler", () => {
+  test("static web handler serves assets and falls back to the React app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pocketpatch-web-assets-"));
+    await mkdir(join(root, "assets"));
+    await writeFile(join(root, "index.html"), '<div id="root"></div>');
+    await writeFile(join(root, "assets", "app.js"), "console.log('ok');");
+
+    const handler = Daemon.makeStaticWebHandler([root]);
+    const appResponse = await handler(
+      new Request("http://127.0.0.1:3217/projects/1/diff"),
+    );
+    const assetResponse = await handler(
+      new Request("http://127.0.0.1:3217/assets/app.js"),
+    );
+
+    expect(appResponse.status).toBe(200);
+    expect(appResponse.headers.get("content-type")).toBe(
+      "text/html; charset=utf-8",
+    );
+    await expect(appResponse.text()).resolves.toBe('<div id="root"></div>');
+    expect(assetResponse.status).toBe(200);
+    expect(assetResponse.headers.get("content-type")).toBe(
+      "text/javascript; charset=utf-8",
+    );
+    await expect(assetResponse.text()).resolves.toBe("console.log('ok');");
+  });
+
   test("DaemonHttpService handles requests through an Effect layer", async () => {
     const response = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/health"),
+          new Request("http://127.0.0.1:3217/api/health"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -155,7 +184,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects", {
+          new Request("http://127.0.0.1:3217/api/projects", {
             body: JSON.stringify({ path: "/home/k/code/pocketpatch" }),
             headers: {
               "content-type": "application/json",
@@ -188,7 +217,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects", {
+          new Request("http://127.0.0.1:3217/api/projects", {
             body: JSON.stringify({ path: "/home/k/code/pocketpatch" }),
             headers: {
               "content-type": "application/json",
@@ -223,7 +252,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects", {
+          new Request("http://127.0.0.1:3217/api/projects", {
             body: JSON.stringify({ path: "" }),
             headers: {
               "content-type": "application/json",
@@ -247,7 +276,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1"),
+          new Request("http://127.0.0.1:3217/api/projects/1"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -273,7 +302,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/404"),
+          new Request("http://127.0.0.1:3217/api/projects/404"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -291,7 +320,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/diff"),
+          new Request("http://127.0.0.1:3217/api/projects/1/diff"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -355,7 +384,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/404/diff"),
+          new Request("http://127.0.0.1:3217/api/projects/404/diff"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -383,7 +412,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/diff"),
+          new Request("http://127.0.0.1:3217/api/projects/1/diff"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -401,7 +430,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments"),
+          new Request("http://127.0.0.1:3217/api/projects/1/comments"),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -435,7 +464,7 @@ describe("daemon HTTP handler", () => {
 
         return yield* service.handle(
           new Request(
-            "http://127.0.0.1:3217/projects/1/comments?showResolved=true",
+            "http://127.0.0.1:3217/api/projects/1/comments?showResolved=true",
           ),
         );
       }).pipe(
@@ -461,7 +490,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments", {
+          new Request("http://127.0.0.1:3217/api/projects/1/comments", {
             body: JSON.stringify({
               anchorLineContent: "const value = 1;",
               body: "Prefer the Effect helper here.",
@@ -504,7 +533,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments", {
+          new Request("http://127.0.0.1:3217/api/projects/1/comments", {
             body: JSON.stringify({
               anchorLineContent: "const value = 1;",
               body: "",
@@ -534,9 +563,12 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments/1/resolve", {
-            method: "POST",
-          }),
+          new Request(
+            "http://127.0.0.1:3217/api/projects/1/comments/1/resolve",
+            {
+              method: "POST",
+            },
+          ),
         );
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServiceLive),
@@ -567,7 +599,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments/1", {
+          new Request("http://127.0.0.1:3217/api/projects/1/comments/1", {
             method: "DELETE",
           }),
         );
@@ -590,7 +622,7 @@ describe("daemon HTTP handler", () => {
         const service = yield* Daemon.DaemonHttpService;
 
         return yield* service.handle(
-          new Request("http://127.0.0.1:3217/projects/1/comments/404", {
+          new Request("http://127.0.0.1:3217/api/projects/1/comments/404", {
             method: "DELETE",
           }),
         );

@@ -243,7 +243,7 @@ export const listComments = (
         anchor_line_content
       FROM comments
       WHERE project_id = ${projectId}
-        AND (${options.showResolved === true} OR resolved_at IS NULL)
+        AND (${options.showResolved === true ? 1 : 0} = 1 OR resolved_at IS NULL)
       ORDER BY id ASC
     `,
     (rows) => rows.map(toComment),

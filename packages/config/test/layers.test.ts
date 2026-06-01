@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Config from "../src/index";
 
 describe("config Effect layers", () => {

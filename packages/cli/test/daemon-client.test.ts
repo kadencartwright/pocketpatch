@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { NodeHttpClient } from "@effect/platform-node";
 import { ConfigService } from "@pocketpatch/config";
 import { Effect, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import { DaemonClientService, DaemonClientServiceLive } from "../src/index";
 
 const withProjectServer = async <A>(
@@ -95,7 +95,7 @@ describe("DaemonClientService", () => {
             path: "/home/k/code/pocketpatch",
           },
           method: "POST",
-          url: "/projects",
+          url: "/api/projects",
         },
       ]);
     });

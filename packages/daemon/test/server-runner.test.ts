@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import { ConfigService } from "@pocketpatch/config";
 import { GitService } from "@pocketpatch/git";
 import { NetworkService } from "@pocketpatch/network";
 import { ProjectNotFoundError, StorageService } from "@pocketpatch/storage";
 import { Cause, Effect, Either, Exit, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Daemon from "../src/index";
 
 const getAvailablePort = () =>
@@ -37,10 +38,10 @@ const fetchHealth = async (port: number) => {
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      return await fetch(`http://127.0.0.1:${port}/health`);
+      return await fetch(`http://127.0.0.1:${port}/api/health`);
     } catch (error) {
       lastError = error;
-      await Bun.sleep(25);
+      await sleep(25);
     }
   }
 

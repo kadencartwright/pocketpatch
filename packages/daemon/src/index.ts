@@ -1,10 +1,14 @@
+import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { dirname, extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
+  HttpApp,
   HttpServer,
   type HttpServerRequest,
 } from "@effect/platform";
@@ -456,6 +460,108 @@ export const DaemonHttpServerLive = HttpApiBuilder.serve().pipe(
   Layer.provide(PocketPatchApiLive),
 );
 
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const defaultWebAssetRoots = [
+  join(moduleDir, "web"),
+  join(moduleDir, "../../../apps/web/dist"),
+  join(process.cwd(), "apps/web/dist"),
+];
+
+const contentTypes: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
+};
+
+const isApiPath = (pathname: string): boolean =>
+  pathname === "/api" || pathname.startsWith("/api/");
+
+const stripApiPrefix = (request: Request): Request => {
+  const url = new URL(request.url);
+  url.pathname = url.pathname.slice("/api".length) || "/";
+
+  return new Request(url.toString(), request as RequestInit);
+};
+
+const responseWithNotFound = () =>
+  new Response("Not found", {
+    status: 404,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+    },
+  });
+
+const firstExistingRoot = async (
+  roots: ReadonlyArray<string>,
+): Promise<string | null> => {
+  for (const root of roots) {
+    try {
+      const rootStat = await stat(root);
+
+      if (rootStat.isDirectory()) {
+        return root;
+      }
+    } catch {
+      // Try the next candidate root.
+    }
+  }
+
+  return null;
+};
+
+const filePathForRequest = (root: string, pathname: string): string => {
+  const requestedPath = decodeURIComponent(pathname);
+  const relativePath =
+    requestedPath === "/" || extname(requestedPath) === ""
+      ? "index.html"
+      : requestedPath.replace(/^\/+/, "");
+  const normalizedPath = normalize(relativePath).replace(
+    /^(\.\.(\/|\\|$))+/,
+    "",
+  );
+
+  return join(root, normalizedPath);
+};
+
+export const makeStaticWebHandler =
+  (webAssetRoots: ReadonlyArray<string> = defaultWebAssetRoots) =>
+  async (request: Request): Promise<Response> => {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return responseWithNotFound();
+    }
+
+    const root = await firstExistingRoot(webAssetRoots);
+
+    if (root === null) {
+      return responseWithNotFound();
+    }
+
+    const url = new URL(request.url);
+    const filePath = filePathForRequest(root, url.pathname);
+
+    try {
+      const file = await readFile(filePath);
+      const type =
+        contentTypes[extname(filePath)] ?? "application/octet-stream";
+
+      return new Response(request.method === "HEAD" ? null : file, {
+        headers: {
+          "cache-control": filePath.endsWith("index.html")
+            ? "no-cache"
+            : "public, max-age=31536000, immutable",
+          "content-type": type,
+        },
+      });
+    } catch {
+      return responseWithNotFound();
+    }
+  };
+
 export class DaemonHttpService extends Context.Tag(
   "@pocketpatch/daemon/DaemonHttpService",
 )<
@@ -482,9 +588,28 @@ export const DaemonHttpServiceLive = Layer.scoped(
       Effect.promise(() => apiHandler.dispose()),
     );
 
+    const staticWebHandler = makeStaticWebHandler();
+
     return {
-      handle: (request) => Effect.promise(() => apiHandler.handler(request)),
+      handle: (request) =>
+        Effect.promise(() =>
+          isApiPath(new URL(request.url).pathname)
+            ? apiHandler.handler(stripApiPrefix(request))
+            : staticWebHandler(request),
+        ),
     };
+  }),
+);
+
+export const DaemonPublicHttpServerLive = Layer.scopedDiscard(
+  Effect.gen(function* () {
+    const service = yield* DaemonHttpService;
+
+    yield* HttpServer.serveEffect(
+      HttpApp.fromWebHandler((request) =>
+        Effect.runPromise(service.handle(request)),
+      ),
+    );
   }),
 );
 
@@ -530,7 +655,8 @@ export const DaemonServerFactoryLive = Layer.effect(
 
     return {
       bind: (endpoint) =>
-        DaemonHttpServerLive.pipe(
+        DaemonPublicHttpServerLive.pipe(
+          Layer.provide(DaemonHttpServiceLive),
           Layer.provide(Layer.succeed(StorageService, storage)),
           Layer.provide(GitServiceLive),
           Layer.provide(

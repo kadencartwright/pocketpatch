@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { Args, Command, Options, ValidationError } from "@effect/cli";
 import {
   type FileSystem,
@@ -79,13 +81,28 @@ export class WorkingDirectoryService extends Context.Tag(
   }
 >() {}
 
+export class DaemonSupervisorService extends Context.Tag(
+  "@pocketpatch/cli/DaemonSupervisorService",
+)<
+  DaemonSupervisorService,
+  {
+    readonly ensureStarted: (
+      env: ConfigEnv,
+    ) => Effect.Effect<
+      void,
+      DaemonClientError,
+      ConfigService | FileSystem.FileSystem
+    >;
+  }
+>() {}
+
 export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
   registerProject: (env, path) =>
     Effect.gen(function* () {
       const configService = yield* ConfigService;
       const config = yield* configService.load(env);
       const client = yield* HttpApiClient.make(PocketPatchApi, {
-        baseUrl: `http://127.0.0.1:${config.network.port}`,
+        baseUrl: `http://127.0.0.1:${config.network.port}/api`,
       });
 
       return yield* client.projects.register({
@@ -99,6 +116,68 @@ export const DaemonClientServiceLive = Layer.succeed(DaemonClientService, {
       ),
     ),
 });
+
+const spawnDetachedDaemon = (): void => {
+  const entrypoint = process.argv[1];
+
+  if (entrypoint === undefined) {
+    throw new Error("Cannot locate PocketPatch CLI entrypoint");
+  }
+
+  const child = spawn(process.execPath, [entrypoint, "daemon", "start"], {
+    detached: true,
+    env: process.env,
+    stdio: "ignore",
+  });
+
+  child.unref();
+};
+
+const waitForDaemonHealth = async (port: number): Promise<void> => {
+  const healthUrl = `http://127.0.0.1:${port}/api/health`;
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      const response = await fetch(healthUrl);
+
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Keep polling while the detached daemon binds its listeners.
+    }
+
+    await sleep(100);
+  }
+
+  throw new Error(`Timed out waiting for PocketPatch daemon at ${healthUrl}`);
+};
+
+export const DaemonSupervisorServiceLive = Layer.succeed(
+  DaemonSupervisorService,
+  {
+    ensureStarted: (env) =>
+      Effect.gen(function* () {
+        const configService = yield* ConfigService;
+        const config = yield* configService.load(env);
+
+        yield* Effect.try({
+          catch: (cause) => new DaemonClientError({ cause }),
+          try: spawnDetachedDaemon,
+        });
+        yield* Effect.tryPromise({
+          catch: (cause) => new DaemonClientError({ cause }),
+          try: () => waitForDaemonHealth(config.network.port),
+        });
+      }).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof DaemonClientError
+            ? cause
+            : new DaemonClientError({ cause }),
+        ),
+      ),
+  },
+);
 
 export const WorkingDirectoryServiceLive = Layer.succeed(
   WorkingDirectoryService,
@@ -289,12 +368,27 @@ const registerCommand = (env: ConfigEnv) =>
     ({ path }) =>
       Effect.gen(function* () {
         const daemonClient = yield* DaemonClientService;
+        const daemonSupervisor = yield* DaemonSupervisorService;
         const workingDirectory = yield* WorkingDirectoryService;
         const projectPath = yield* Option.match(path, {
           onNone: () => workingDirectory.cwd,
           onSome: (value) => Effect.succeed(value),
         });
-        const response = yield* daemonClient.registerProject(env, projectPath);
+        const response = yield* daemonClient
+          .registerProject(env, projectPath)
+          .pipe(
+            Effect.catchAll((error) =>
+              error instanceof DaemonClientError
+                ? daemonSupervisor
+                    .ensureStarted(env)
+                    .pipe(
+                      Effect.zipRight(
+                        daemonClient.registerProject(env, projectPath),
+                      ),
+                    )
+                : Effect.fail(error),
+            ),
+          );
 
         yield* writeStdout(`${response.reviewUrl}\n`);
       }),
@@ -350,7 +444,7 @@ const runCliCommand = (args: ReadonlyArray<string>, env: ConfigEnv) =>
   Command.run(pocketPatchCommand(env), {
     name: "PocketPatch",
     version: "0.0.0",
-  })(["bun", "pocketpatch", ...args]);
+  })(["node", "pocketpatch", ...args]);
 
 export const runCli = (
   args: ReadonlyArray<string>,
@@ -362,6 +456,7 @@ export const runCli = (
   | DaemonClientService
   | DaemonControlService
   | DaemonServerFactory
+  | DaemonSupervisorService
   | NetworkService
   | StorageService
   | WorkingDirectoryService

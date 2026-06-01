@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { SqliteClient } from "@effect/sql-sqlite-node";
 import type { ConfigEnv } from "@pocketpatch/config";
 import { ConfigServiceLive, resolveConfigPaths } from "@pocketpatch/config";
 import {
@@ -17,6 +17,7 @@ import {
 import { Effect, Layer } from "effect";
 import {
   DaemonClientServiceLive,
+  DaemonSupervisorServiceLive,
   runCli,
   WorkingDirectoryServiceLive,
 } from "./index";
@@ -45,6 +46,7 @@ const runWithBaseLayers = (args: ReadonlyArray<string>, env: ConfigEnv) =>
     Effect.provide(ConfigServiceLive),
     Effect.provide(DaemonClientServiceLive),
     Effect.provide(DaemonControlServiceLive),
+    Effect.provide(DaemonSupervisorServiceLive),
     Effect.provide(NoopDaemonServerFactoryLive),
     Effect.provide(NetworkServiceNodeLive),
     Effect.provide(NoopStorageServiceLive),
@@ -64,6 +66,7 @@ const runWithStorageLayers = async (
       Effect.provide(ConfigServiceLive),
       Effect.provide(DaemonClientServiceLive),
       Effect.provide(DaemonControlServiceLive),
+      Effect.provide(DaemonSupervisorServiceLive),
       Effect.provide(DaemonServerFactoryLive),
       Effect.provide(NetworkServiceNodeLive),
       Effect.provide(WorkingDirectoryServiceLive),

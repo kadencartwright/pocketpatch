@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConfigEnv } from "@pocketpatch/config";
 import { resolveConfigPaths } from "@pocketpatch/config";
+import { describe, expect, test } from "vitest";
 import { runPocketPatchCli } from "../src/runtime";
 
 const exists = async (path: string): Promise<boolean> => {

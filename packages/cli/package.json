@@ -1,35 +1,44 @@
 {
-  "name": "@pocketpatch/cli",
+  "name": "pocketpatch",
   "version": "0.0.0",
-  "private": true,
+  "description": "Agent-facing CLI for local PocketPatch code review.",
+  "license": "UNLICENSED",
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    }
+  "engines": {
+    "node": ">=20"
   },
   "bin": {
-    "pocketpatch": "./src/bin.ts"
+    "pocketpatch": "./dist/bin.js"
   },
+  "files": [
+    "dist/bin.js",
+    "dist/web",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc -b",
-    "test": "bun test",
+    "build": "tsc -b && pnpm run build:package",
+    "build:bundle": "tsup src/bin.ts --format esm --platform node --target node20 --out-dir dist --external @effect/cli --external @effect/experimental --external @effect/platform --external @effect/platform-node --external @effect/sql --external @effect/sql-sqlite-node --external better-sqlite3 --external effect && chmod +x dist/bin.js",
+    "build:package": "rm -rf dist && pnpm run build:bundle && pnpm --dir ../../apps/web run build && cp -R ../../apps/web/dist dist/web",
+    "pack:dry-run": "npm pack --dry-run",
+    "prepack": "pnpm run build",
+    "test": "vitest run --root ../.. packages/cli/test",
     "typecheck": "tsc -b"
   },
   "dependencies": {
     "@effect/cli": "^0.75.1",
+    "@effect/experimental": "^0.60.0",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
-    "@effect/sql-sqlite-bun": "^0.52.0",
+    "@effect/sql": "^0.51.1",
+    "@effect/sql-sqlite-node": "^0.52.0",
+    "effect": "^3.21.2"
+  },
+  "devDependencies": {
     "@pocketpatch/config": "workspace:*",
     "@pocketpatch/daemon": "workspace:*",
     "@pocketpatch/network": "workspace:*",
     "@pocketpatch/storage": "workspace:*",
-    "effect": "^3.21.2"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.2",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }
 }

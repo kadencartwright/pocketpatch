@@ -4,7 +4,7 @@ This note summarizes useful testing patterns from `opencode` and how they map
 to PocketPatch. The examples link to `opencode` at commit
 `1afa9e32c9ebde43fc94782c883b422a3628daff` so the references remain stable.
 
-## 1. Wrap `bun:test` With An Effect-Aware Harness
+## 1. Wrap Vitest With An Effect-Aware Harness
 
 Effect tests should pass an `Effect` directly to the test runner. The harness
 should own `Effect.runPromise`, `Effect.scoped`, common test layers, and failure
@@ -161,7 +161,7 @@ Examples:
 
 Use Effect where there is a real dependency, failure channel, resource, or
 concurrency concern. Keep parsing, view-model shaping, URL construction, and
-small transformations pure. Pure functions should have plain `bun:test` tests.
+small transformations pure. Pure functions should have plain Vitest tests.
 
 PocketPatch already follows this in several places: network address
 normalization, bind-address selection, web diff URL building, syntax detection,

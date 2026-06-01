@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import {
   HttpClient,
   HttpClientRequest,
@@ -13,6 +12,7 @@ import {
   StorageService,
 } from "@pocketpatch/storage";
 import { Effect, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Daemon from "../src/index";
 
 const StorageTest = Layer.succeed(StorageService, {
@@ -173,7 +173,7 @@ describe("daemon Effect HTTP app", () => {
           path: "/home/k/code/pocketpatch",
         });
         expect(new URL(body.reviewUrl).pathname).toBe("/projects/1");
-        expect(body.reviewUrl).toStartWith("http://127.0.0.1:");
+        expect(body.reviewUrl.startsWith("http://127.0.0.1:")).toBe(true);
       }).pipe(
         Effect.provide(Daemon.DaemonHttpServerLive),
         Effect.provide(StorageTest),

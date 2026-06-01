@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Git from "../src/index";
 
 const execFileAsync = promisify(execFile);

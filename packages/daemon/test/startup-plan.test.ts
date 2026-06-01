@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import { ConfigService } from "@pocketpatch/config";
 import {
   AddressSource,
@@ -7,6 +6,7 @@ import {
   NetworkServiceLive,
 } from "@pocketpatch/network";
 import { Cause, Effect, Either, Exit, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Daemon from "../src/index";
 
 describe("daemon startup planning", () => {

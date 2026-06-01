@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
 import { ConfigService } from "@pocketpatch/config";
 import { NetworkService } from "@pocketpatch/network";
 import { Effect, Layer } from "effect";
+import { describe, expect, test } from "vitest";
 import * as Daemon from "../src/index";
 
 const ConfigTest = Layer.succeed(ConfigService, {
