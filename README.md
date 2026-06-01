@@ -1,5 +1,5 @@
 <p>
-  <img src="docs/assets/pocketpatch-wordmark.svg" alt="pocket patch" width="224" />
+  <img src="docs/assets/pocketpatch-wordmark.svg" alt="pocket patch" width="320" />
 </p>
 
 PocketPatch is a local, mobile-friendly diff review tool for uncommitted code
