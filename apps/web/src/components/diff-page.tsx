@@ -87,6 +87,20 @@ const statusLabel = (file: FileDiff) =>
     ? `${file.oldPath} -> ${file.path}`
     : file.path;
 
+const anchorHomePath = (path: string) => {
+  const homeMatch = /^\/(?:home|Users)\/[^/]+(?=\/|$)/.exec(path);
+
+  return homeMatch === null ? path : `~${path.slice(homeMatch[0].length)}`;
+};
+
+const formatProjectTitle = ({
+  displayRef,
+  path,
+}: {
+  readonly displayRef: string;
+  readonly path: string;
+}) => `${anchorHomePath(path)}:${displayRef}`;
+
 const countDiffStats = (file: FileDiff): DiffStats => {
   let additions = 0;
   let deletions = 0;
@@ -115,6 +129,20 @@ const buildDiffStatsByPath = (
   return statsByPath;
 };
 
+const countTotalDiffStats = (diffs: ReadonlyArray<FileDiff>): DiffStats => {
+  let additions = 0;
+  let deletions = 0;
+
+  for (const file of diffs) {
+    const stats = countDiffStats(file);
+
+    additions += stats.additions;
+    deletions += stats.deletions;
+  }
+
+  return { additions, deletions };
+};
+
 const lineKey = (
   filePath: string,
   line: {
@@ -140,8 +168,14 @@ const targetCodePreview = (target: CommentDrawerTarget) => {
   return preview === "" ? "Blank line" : preview;
 };
 
-const DiffStatsBadge = ({ stats }: { readonly stats: DiffStats }) => {
-  if (stats.additions === 0 && stats.deletions === 0) {
+const DiffStatsBadge = ({
+  showZero = false,
+  stats,
+}: {
+  readonly showZero?: boolean;
+  readonly stats: DiffStats;
+}) => {
+  if (!showZero && stats.additions === 0 && stats.deletions === 0) {
     return null;
   }
 
@@ -159,6 +193,49 @@ const DiffStatsBadge = ({ stats }: { readonly stats: DiffStats }) => {
     </span>
   );
 };
+
+const DiffStatsText = ({
+  showZero = false,
+  stats,
+}: {
+  readonly showZero?: boolean;
+  readonly stats: DiffStats;
+}) => {
+  if (!showZero && stats.additions === 0 && stats.deletions === 0) {
+    return null;
+  }
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-baseline gap-1 font-bold font-mono text-xs"
+      title={`${stats.additions} additions, ${stats.deletions} deletions`}
+    >
+      <span className="text-[#98c379]">+{stats.additions}</span>
+      <span className="text-[#e06c75]">-{stats.deletions}</span>
+    </span>
+  );
+};
+
+const BrandMark = () => (
+  <div className="flex items-center gap-2">
+    <span
+      aria-hidden="true"
+      className="inline-grid h-5 w-8 shrink-0 grid-cols-2 overflow-hidden rounded-md border border-[#3e4451] font-bold font-mono text-[12px] leading-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+    >
+      <span className="grid place-items-center bg-[#98c379]/18 text-[#98c379]">
+        +
+      </span>
+      <span className="grid place-items-center bg-[#e06c75]/18 text-[#e06c75]">
+        -
+      </span>
+    </span>
+    <span className="font-bold text-sm leading-none tracking-normal">
+      <span className="text-[#abb2bf]">pocket</span>
+      <span className="px-0.5 text-[#5c6370]">|</span>
+      <span className="text-[#61afef]">patch</span>
+    </span>
+  </div>
+);
 
 const linePrefix = (line: HighlightedDiffLine) =>
   line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " ";
@@ -235,7 +312,12 @@ const CommentsPanel = ({
   return (
     <details className="border-[#3e4451] border-b bg-[#21252b]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-bold text-[#abb2bf] text-sm md:px-6">
-        <span>Comments ({data.comments.length})</span>
+        <span className="flex items-baseline gap-2">
+          <span>Comments</span>
+          <span className="font-semibold text-[#7f848e]">
+            {data.comments.length}
+          </span>
+        </span>
       </summary>
       <div className="grid gap-2 px-4 pb-4 md:px-6">
         {data.comments.length === 0 ? (
@@ -245,7 +327,7 @@ const CommentsPanel = ({
             section.comments.length > 0 ? (
               <section className="grid gap-2" key={section.label}>
                 <h3 className="m-0 pt-2 font-bold text-[#7f848e] text-xs uppercase tracking-normal">
-                  {section.label} ({section.comments.length})
+                  {section.label} {section.comments.length}
                 </h3>
                 {section.comments.map((comment) => (
                   <div
@@ -293,20 +375,27 @@ const FilesSidebar = ({
   diffStatsByPath,
   filePickerCollapsed,
   setFilePickerCollapsed,
+  totalDiffStats,
 }: {
   readonly collapsedFiles: Record<string, boolean>;
   readonly data: ProjectDiffPageData;
   readonly diffStatsByPath: ReadonlyMap<string, DiffStats>;
   readonly filePickerCollapsed: boolean;
   readonly setFilePickerCollapsed: (value: boolean) => void;
+  readonly totalDiffStats: DiffStats;
 }) => (
   <aside
     aria-label="Changed files"
     className="border-[#3e4451] border-b bg-[#21252b] p-3 md:sticky md:top-0 md:z-10 md:max-h-screen md:overflow-auto md:border-r md:border-b-0 md:p-4"
   >
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <h2 className="m-0 font-bold text-sm tracking-normal md:text-base">
-        Files
+    <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <h2 className="m-0 flex min-w-0 items-baseline gap-2 font-bold text-sm tracking-normal md:text-base">
+        <span>Files</span>
+        <span className="font-semibold text-[#7f848e]">
+          {data.summary.changedFileCount}
+        </span>
+        <span className="text-[#5c6370]">·</span>
+        <DiffStatsText showZero stats={totalDiffStats} />
       </h2>
       <button
         aria-controls="changed-files"
@@ -331,10 +420,7 @@ const FilesSidebar = ({
           href={`#file-${file.path}`}
           key={file.path}
         >
-          <span className="grid min-w-0 gap-0.5">
-            <span className="font-bold text-[#61afef] text-[10px] uppercase leading-none tracking-normal md:text-xs">
-              {file.status}
-            </span>
+          <span className="min-w-0">
             <span
               className={[
                 "text-[13px] leading-snug [overflow-wrap:anywhere] md:text-sm",
@@ -524,24 +610,28 @@ const DiffFileHeader = ({
   readonly onToggleFile: (path: string) => void;
 }) => {
   const collapseLabel = isCollapsed ? "Expand file" : "Collapse file";
+  const stats = countDiffStats(file);
 
   return (
-    <header className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 bg-[#21252b] px-3 py-2.5 md:px-4">
+    <header className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-3 bg-[#21252b] px-3 py-2.5 md:px-4">
       <div className="min-w-0">
-        <p className="m-0 font-bold text-[#61afef] text-xs uppercase tracking-normal">
-          {file.status}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="m-0 font-semibold text-[#7f848e] text-xs uppercase tracking-normal">
+            {file.status}
+          </p>
+          <span className="text-[#5c6370]">·</span>
+          <DiffStatsText stats={stats} />
+          {file.truncated ? (
+            <span className="rounded-sm bg-[#e5c07b]/15 px-1.5 py-0.5 font-bold text-[#e5c07b] text-[11px] uppercase">
+              Truncated
+            </span>
+          ) : null}
+        </div>
         <h2 className="mt-0.5 font-bold text-base tracking-normal [overflow-wrap:anywhere]">
           {statusLabel(file)}
         </h2>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <DiffStatsBadge stats={countDiffStats(file)} />
-        {file.truncated ? (
-          <span className="rounded-full bg-[#e5c07b]/20 px-2 py-1 font-bold text-[#e5c07b] text-xs">
-            Truncated
-          </span>
-        ) : null}
+      <div className="flex shrink-0 items-start justify-end">
         <button
           aria-controls={`file-body-${file.path}`}
           aria-expanded={!isCollapsed}
@@ -729,6 +819,10 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
     () => buildDiffStatsByPath(data.diff.diffs),
     [data.diff.diffs],
   );
+  const totalDiffStats = useMemo(
+    () => countTotalDiffStats(data.diff.diffs),
+    [data.diff.diffs],
+  );
 
   const draftKeyForLine = (key: string) =>
     buildCommentDraftKey({
@@ -846,53 +940,28 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
 
   return (
     <main className="min-h-screen bg-[#282c34] text-[#abb2bf]">
-      <header className="grid gap-6 border-[#3e4451] border-b bg-[#21252b] p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:p-6">
+      <header className="border-[#3e4451] border-b bg-[#21252b] p-4 md:p-6">
         <div className="min-w-0">
-          <p className="m-0 font-bold text-[#61afef] text-xs uppercase tracking-normal">
-            PocketPatch
-          </p>
-          <h1 className="mt-1 text-balance font-bold text-[22px] leading-tight tracking-normal [overflow-wrap:anywhere]">
-            {data.diff.project.path}
+          <BrandMark />
+          <h1 className="mt-3 text-balance font-bold text-[22px] leading-tight tracking-normal [overflow-wrap:anywhere]">
+            {formatProjectTitle({
+              displayRef: data.summary.displayRef,
+              path: data.diff.project.path,
+            })}
           </h1>
         </div>
-
-        <dl className="m-0 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="min-w-0 rounded-md border border-[#3e4451] bg-[#2c313a] px-2.5 py-2">
-            <dt className="text-[#7f848e] text-xs">Ref</dt>
-            <dd className="mt-0.5 truncate font-bold text-base">
-              {data.summary.displayRef}
-            </dd>
-          </div>
-          <div className="min-w-0 rounded-md border border-[#3e4451] bg-[#2c313a] px-2.5 py-2">
-            <dt className="text-[#7f848e] text-xs">Files</dt>
-            <dd className="mt-0.5 font-bold text-base">
-              {data.summary.changedFileCount}
-            </dd>
-          </div>
-          <div className="min-w-0 rounded-md border border-[#3e4451] bg-[#2c313a] px-2.5 py-2">
-            <dt className="text-[#7f848e] text-xs">Lines</dt>
-            <dd className="mt-0.5 font-bold text-base">
-              {data.summary.lineCount}
-            </dd>
-          </div>
-          <div className="min-w-0 rounded-md border border-[#3e4451] bg-[#2c313a] px-2.5 py-2">
-            <dt className="text-[#7f848e] text-xs">Binary</dt>
-            <dd className="mt-0.5 font-bold text-base">
-              {data.summary.binaryCount}
-            </dd>
-          </div>
-        </dl>
       </header>
 
       <CommentsPanel data={data} projectId={projectId} />
 
-      <div className="grid min-h-[calc(100vh-105px)] md:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid min-h-[calc(100vh-105px)] content-start md:grid-cols-[280px_minmax(0,1fr)]">
         <FilesSidebar
           collapsedFiles={collapsedFiles}
           data={data}
           diffStatsByPath={diffStatsByPath}
           filePickerCollapsed={filePickerCollapsed}
           setFilePickerCollapsed={setFilePickerCollapsed}
+          totalDiffStats={totalDiffStats}
         />
 
         <section

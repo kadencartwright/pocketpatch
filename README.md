@@ -1,4 +1,6 @@
-# PocketPatch
+<p>
+  <img src="docs/assets/pocketpatch-wordmark.svg" alt="pocket patch" width="224" />
+</p>
 
 PocketPatch is a mobile-first diff review workspace for agent-generated code changes.
 
