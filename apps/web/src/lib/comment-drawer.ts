@@ -1,4 +1,4 @@
-import { commentLineKey } from "./project-diff-load";
+import { commentLineKey } from "./comment-anchor";
 
 export type CommentDrawerLine = {
   readonly content: string;

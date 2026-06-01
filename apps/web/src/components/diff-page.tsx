@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
 import { useMemo, useRef, useState } from "react";
+import { commentLineKey } from "../lib/comment-anchor";
 import {
   buildCommentDraftKey,
   type CommentDraftStorage,
@@ -15,10 +16,9 @@ import {
   commentDrawerLineLabel,
 } from "../lib/comment-drawer";
 import type { FileDiff } from "../lib/diff-client";
-import {
-  commentLineKey,
-  type ProjectCommentState,
-  type ProjectDiffPageData,
+import type {
+  ProjectCommentState,
+  ProjectDiffPageData,
 } from "../lib/project-diff-load";
 import {
   useCreateCommentMutation,
@@ -129,13 +129,10 @@ const lineKey = (
   });
 
 const commentStatusLabels = (comment: ProjectCommentState) =>
-  [
-    comment.resolvedAt === null ? "" : "resolved",
-    comment.stale ? "stale" : "",
-  ].filter(Boolean);
+  [comment.resolvedAt === null ? "" : "resolved"].filter(Boolean);
 
 const commentTargetHref = (comment: ProjectCommentState) =>
-  comment.stale ? null : `#file-${comment.filePath}`;
+  `#file-${comment.filePath}`;
 
 const targetCodePreview = (target: CommentDrawerTarget) => {
   const preview = target.anchorLineContent.trim();
@@ -257,18 +254,12 @@ const CommentsPanel = ({
                   >
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <div className="min-w-0 text-sm">
-                        {commentTargetHref(comment) === null ? (
-                          <span className="font-bold text-[#abb2bf] [overflow-wrap:anywhere]">
-                            {comment.filePath}
-                          </span>
-                        ) : (
-                          <a
-                            className="font-bold text-[#abb2bf] underline-offset-2 hover:text-[#61afef] [overflow-wrap:anywhere]"
-                            href={commentTargetHref(comment) ?? undefined}
-                          >
-                            {comment.filePath}
-                          </a>
-                        )}
+                        <a
+                          className="font-bold text-[#abb2bf] underline-offset-2 hover:text-[#61afef] [overflow-wrap:anywhere]"
+                          href={commentTargetHref(comment)}
+                        >
+                          {comment.filePath}
+                        </a>
                         <span className="text-[#7f848e]">
                           {" "}
                           {commentDrawerLineLabel(comment)}

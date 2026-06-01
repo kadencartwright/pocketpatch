@@ -1,4 +1,8 @@
 import {
+  attachCommentsToCurrentDiff,
+  type ProjectCommentAnchorState,
+} from "./comment-anchor";
+import {
   createDiffViewModel,
   type DiffViewModel,
   fetchProjectComments,
@@ -17,10 +21,7 @@ export type LoadProjectDiffOptions = {
   readonly projectId: string;
 };
 
-export type ProjectCommentState = ProjectComment & {
-  readonly lineKey: string;
-  readonly stale: boolean;
-};
+export type ProjectCommentState = ProjectCommentAnchorState;
 
 export type ProjectDiffPageData = {
   readonly comments: ReadonlyArray<ProjectCommentState>;
@@ -32,28 +33,12 @@ export type ProjectDiffPageData = {
   readonly unresolvedComments: ReadonlyArray<ProjectCommentState>;
 };
 
-export const commentLineKey = ({
-  filePath,
-  newLineNumber,
-  oldLineNumber,
-}: Pick<ProjectComment, "filePath" | "newLineNumber" | "oldLineNumber">) => {
-  if (newLineNumber !== null) {
-    return `${filePath}:new:${newLineNumber}`;
-  }
-
-  if (oldLineNumber !== null) {
-    return `${filePath}:old:${oldLineNumber}`;
-  }
-
-  return `${filePath}:file`;
-};
-
 const groupCommentsByLine = (
   comments: ReadonlyArray<ProjectCommentState>,
 ): Record<string, ReadonlyArray<ProjectCommentState>> =>
   comments.reduce<Record<string, Array<ProjectCommentState>>>(
     (groups, comment) => {
-      const key = commentLineKey(comment);
+      const key = comment.lineKey;
 
       groups[key] ??= [];
       groups[key].push(comment);
@@ -63,56 +48,11 @@ const groupCommentsByLine = (
     {},
   );
 
-const diffLineKey = (
-  filePath: string,
-  line: {
-    readonly newLineNumber: number | null;
-    readonly oldLineNumber: number | null;
-  },
-) =>
-  commentLineKey({
-    filePath,
-    newLineNumber: line.newLineNumber,
-    oldLineNumber: line.oldLineNumber,
-  });
-
-const buildCurrentLineContentByKey = (
-  diff: ProjectDiffResponse,
-): Map<string, string> => {
-  const lines = new Map<string, string>();
-
-  for (const file of diff.diffs) {
-    for (const hunk of file.hunks) {
-      for (const line of hunk.lines) {
-        lines.set(diffLineKey(file.path, line), line.content);
-      }
-    }
-  }
-
-  return lines;
-};
-
 const addCommentState = (
   diff: ProjectDiffResponse,
   comments: ReadonlyArray<ProjectComment>,
-): ReadonlyArray<ProjectCommentState> => {
-  const currentLines = buildCurrentLineContentByKey(diff);
-
-  return comments.map((comment) => {
-    const key = commentLineKey(comment);
-    const currentContent = currentLines.get(key);
-    const stale =
-      currentContent === undefined ||
-      (comment.anchorLineContent !== null &&
-        currentContent !== comment.anchorLineContent);
-
-    return {
-      ...comment,
-      lineKey: key,
-      stale,
-    };
-  });
-};
+): ReadonlyArray<ProjectCommentState> =>
+  attachCommentsToCurrentDiff(diff, comments);
 
 export const loadProjectDiff = async ({
   daemonBaseUrl,
