@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Args, Command, Options, ValidationError } from "@effect/cli";
 import {
@@ -44,6 +45,15 @@ export type CliResult = {
 
 type ProjectRegistrationResponse =
   typeof ProjectRegistrationResponseSchema.Type;
+
+const requirePackageJson = createRequire(import.meta.url);
+const packageMetadata = requirePackageJson("../package.json") as {
+  readonly version?: unknown;
+};
+const pocketPatchVersion =
+  typeof packageMetadata.version === "string"
+    ? packageMetadata.version
+    : "0.0.0";
 
 export class DaemonClientError extends Schema.TaggedError<DaemonClientError>()(
   "DaemonClientError",
@@ -443,7 +453,7 @@ const pocketPatchCommand = (env: ConfigEnv) =>
 const runCliCommand = (args: ReadonlyArray<string>, env: ConfigEnv) =>
   Command.run(pocketPatchCommand(env), {
     name: "PocketPatch",
-    version: "0.0.0",
+    version: pocketPatchVersion,
   })(["node", "pocketpatch", ...args]);
 
 export const runCli = (

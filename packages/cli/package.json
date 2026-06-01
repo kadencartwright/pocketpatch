@@ -1,8 +1,25 @@
 {
   "name": "pocketpatch",
-  "version": "0.0.0",
-  "description": "Agent-facing CLI for local PocketPatch code review.",
-  "license": "UNLICENSED",
+  "version": "0.1.0",
+  "description": "Mobile-friendly local diff review for agent-generated code changes.",
+  "license": "MIT",
+  "author": "Kaden Cartwright <cartwrightkaden@gmail.com>",
+  "homepage": "https://github.com/kadencartwright/pocketpatch#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/kadencartwright/pocketpatch.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/kadencartwright/pocketpatch/issues"
+  },
+  "keywords": [
+    "agent",
+    "code-review",
+    "diff",
+    "mobile",
+    "tailscale"
+  ],
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -22,6 +39,8 @@
     "dev": "tsx src/bin.ts daemon start",
     "pack:dry-run": "npm pack --dry-run",
     "prepack": "pnpm run build",
+    "publish:npm": "npm publish",
+    "publish:npm:dry-run": "npm publish --dry-run",
     "test": "vitest run --root ../.. packages/cli/test",
     "typecheck": "tsc -b"
   },
