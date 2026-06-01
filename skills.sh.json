@@ -1,0 +1,10 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "groupings": [
+    {
+      "title": "PocketPatch",
+      "description": "Skills for reviewing local uncommitted diffs from a phone and handing comments back to coding agents.",
+      "skills": ["pocketpatch"]
+    }
+  ]
+}

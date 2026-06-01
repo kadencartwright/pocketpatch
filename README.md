@@ -1,6 +1,8 @@
-<p>
-  <img src="docs/assets/pocketpatch-wordmark.svg" alt="pocket patch" width="320" />
+<p align="center">
+  <img src="docs/assets/pocketpatch-wordmark.svg" alt="pocket patch" width="400" />
 </p>
+
+[![skills.sh](https://skills.sh/b/kadencartwright/pocketpatch)](https://skills.sh/kadencartwright/pocketpatch)
 
 PocketPatch is a local, mobile-friendly diff review tool for uncommitted code
 changes. It is built for reviewing agent-generated work from a phone without
@@ -8,6 +10,24 @@ creating a pull request first.
 
 Run it from a repository, open the review URL on your phone, leave comments on
 changed lines, then read or resolve those comments from the CLI.
+
+## Agent Skill
+
+Install the PocketPatch agent skill with the `skills` CLI:
+
+```sh
+npx skills add kadencartwright/pocketpatch --skill pocketpatch
+```
+
+Install it globally for all projects:
+
+```sh
+npx skills add kadencartwright/pocketpatch --skill pocketpatch -g
+```
+
+After installation, ask your agent to use PocketPatch for review. The skill
+teaches agents to register the current repository, share the review URL, read
+comments, and resolve handled feedback.
 
 ## Quick Start
 
