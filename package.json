@@ -1,5 +1,5 @@
 {
-  "name": "pocketpatch",
+  "name": "pocketpatch-workspace",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,14 +8,15 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --dir packages/cli run build:package",
+    "build": "turbo run build",
+    "dev": "turbo run dev --filter=pocketpatch",
     "fallow": "fallow",
     "format": "biome format --write .",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "prepare": "lefthook install",
-    "test": "vitest run",
-    "typecheck": "tsc -b && pnpm --dir apps/web run typecheck"
+    "test": "turbo run test --filter='./packages/*'",
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
@@ -23,6 +24,8 @@
     "fallow": "^2.85.0",
     "lefthook": "^2.1.9",
     "lint-staged": "^16.4.0",
+    "tsx": "^4.22.4",
+    "turbo": "^2.9.16",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
   },

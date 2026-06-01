@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@pocketpatch/web#dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "pocketpatch#dev": {
+      "cache": false,
+      "persistent": true,
+      "with": ["@pocketpatch/web#dev"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   buildCommentDraftKey,
   type CommentDraftStorage,
@@ -34,15 +34,36 @@ type DiffPageProps = {
   readonly projectId: string;
 };
 
+type DiffStats = {
+  readonly additions: number;
+  readonly deletions: number;
+};
+
+type DiffLineKind = FileDiff["hunks"][number]["lines"][number]["kind"];
+
 const lineNumberClass = "select-none px-1 text-right text-[#5c6370] md:px-2";
+const emptyDiffStats: DiffStats = { additions: 0, deletions: 0 };
+const diffStatsByLineKind: Record<DiffLineKind, DiffStats> = {
+  add: { additions: 1, deletions: 0 },
+  context: emptyDiffStats,
+  delete: { additions: 0, deletions: 1 },
+};
 
 const lineClass = (active: boolean) =>
   [
-    "grid w-full cursor-pointer appearance-none grid-cols-[30px_30px_minmax(0,1fr)] border-0 p-0 text-left font-mono text-[12px] leading-relaxed text-[#abb2bf] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#61afef] md:grid-cols-[52px_52px_minmax(0,1fr)] md:text-[13px]",
+    "grid w-max min-w-full cursor-pointer appearance-none grid-cols-[30px_30px_max-content] border-0 p-0 text-left font-mono text-[12px] leading-relaxed text-[#abb2bf] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#61afef] md:grid-cols-[52px_52px_max-content] md:text-[13px]",
     active ? "shadow-[inset_3px_0_0_#61afef]" : "",
   ]
     .filter(Boolean)
     .join(" ");
+
+const codeClass = (wrapLine: boolean) =>
+  [
+    "pr-2 md:pr-3",
+    wrapLine
+      ? "w-[150ch] max-w-[150ch] whitespace-pre-wrap [overflow-wrap:anywhere]"
+      : "min-w-max whitespace-pre",
+  ].join(" ");
 
 const lineStyle = (kind: HighlightedDiffLine["kind"]): CSSProperties => {
   if (kind === "add") {
@@ -65,6 +86,34 @@ const statusLabel = (file: FileDiff) =>
   file.status === "renamed" && file.oldPath !== null
     ? `${file.oldPath} -> ${file.path}`
     : file.path;
+
+const countDiffStats = (file: FileDiff): DiffStats => {
+  let additions = 0;
+  let deletions = 0;
+
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      const stats = diffStatsByLineKind[line.kind];
+
+      additions += stats.additions;
+      deletions += stats.deletions;
+    }
+  }
+
+  return { additions, deletions };
+};
+
+const buildDiffStatsByPath = (
+  diffs: ReadonlyArray<FileDiff>,
+): ReadonlyMap<string, DiffStats> => {
+  const statsByPath = new Map<string, DiffStats>();
+
+  for (const file of diffs) {
+    statsByPath.set(file.path, countDiffStats(file));
+  }
+
+  return statsByPath;
+};
 
 const lineKey = (
   filePath: string,
@@ -92,6 +141,26 @@ const targetCodePreview = (target: CommentDrawerTarget) => {
   const preview = target.anchorLineContent.trim();
 
   return preview === "" ? "Blank line" : preview;
+};
+
+const DiffStatsBadge = ({ stats }: { readonly stats: DiffStats }) => {
+  if (stats.additions === 0 && stats.deletions === 0) {
+    return null;
+  }
+
+  return (
+    <span
+      className="inline-grid shrink-0 grid-cols-2 overflow-hidden rounded-md border border-[#3e4451] font-bold font-mono text-[11px] leading-none"
+      title={`${stats.additions} additions, ${stats.deletions} deletions`}
+    >
+      <span className="bg-[#98c379]/20 px-1.5 py-1 text-[#98c379]">
+        +{stats.additions}
+      </span>
+      <span className="bg-[#e06c75]/20 px-1.5 py-1 text-[#e06c75]">
+        -{stats.deletions}
+      </span>
+    </span>
+  );
 };
 
 const linePrefix = (line: HighlightedDiffLine) =>
@@ -230,11 +299,13 @@ const CommentsPanel = ({
 const FilesSidebar = ({
   collapsedFiles,
   data,
+  diffStatsByPath,
   filePickerCollapsed,
   setFilePickerCollapsed,
 }: {
   readonly collapsedFiles: Record<string, boolean>;
   readonly data: ProjectDiffPageData;
+  readonly diffStatsByPath: ReadonlyMap<string, DiffStats>;
   readonly filePickerCollapsed: boolean;
   readonly setFilePickerCollapsed: (value: boolean) => void;
 }) => (
@@ -265,8 +336,13 @@ const FilesSidebar = ({
           href={`#file-${file.path}`}
           key={file.path}
         >
-          <span className="font-bold text-[#61afef] text-xs uppercase tracking-normal">
-            {file.status}
+          <span className="flex min-w-0 items-center justify-between gap-2">
+            <span className="font-bold text-[#61afef] text-xs uppercase tracking-normal">
+              {file.status}
+            </span>
+            <DiffStatsBadge
+              stats={diffStatsByPath.get(file.path) ?? emptyDiffStats}
+            />
           </span>
           <span className={collapsedFiles[file.path] ? "text-[#5c6370]" : ""}>
             {file.path}
@@ -294,6 +370,7 @@ const DiffLineRow = ({
 }) => {
   const currentLineKey = lineKey(file.path, line);
   const isActiveCommentLine = activeCommentTarget?.key === currentLineKey;
+  const wrapLine = line.content.length > 150;
   const handleKeydown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -322,7 +399,7 @@ const DiffLineRow = ({
       ) : (
         <span className={lineNumberClass}>{line.newLineNumber}</span>
       )}
-      <code className="min-w-max pr-2 whitespace-pre md:pr-3">
+      <code className={codeClass(wrapLine)}>
         <span>{linePrefix(line)}</span>
         {line.tokens.map((token) => (
           <span
@@ -406,7 +483,7 @@ const DiffFileBody = ({
           className="max-w-full overflow-x-auto"
           key={`${file.path}:${hunk.oldStart}:${hunk.newStart}`}
         >
-          <section className="min-w-[520px] md:min-w-[720px]">
+          <section className="inline-block min-w-full align-top">
             <header className="whitespace-pre bg-[#2c313a] px-3 py-2 font-mono text-[#56b6c2] text-[13px]">
               @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},
               {hunk.newLines} @@ {hunk.header}
@@ -457,6 +534,7 @@ const DiffFileHeader = ({
         </h2>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <DiffStatsBadge stats={countDiffStats(file)} />
         {file.truncated ? (
           <span className="rounded-full bg-[#e5c07b]/20 px-2 py-1 font-bold text-[#e5c07b] text-xs">
             Truncated
@@ -645,6 +723,10 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
   const lineVisibilityTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const pendingFocusTargetKey = useRef<string | null>(null);
   const createComment = useCreateCommentMutation(projectId);
+  const diffStatsByPath = useMemo(
+    () => buildDiffStatsByPath(data.diff.diffs),
+    [data.diff.diffs],
+  );
 
   const draftKeyForLine = (key: string) =>
     buildCommentDraftKey({
@@ -806,6 +888,7 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
         <FilesSidebar
           collapsedFiles={collapsedFiles}
           data={data}
+          diffStatsByPath={diffStatsByPath}
           filePickerCollapsed={filePickerCollapsed}
           setFilePickerCollapsed={setFilePickerCollapsed}
         />

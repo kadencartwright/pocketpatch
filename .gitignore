@@ -1,4 +1,7 @@
 node_modules/
+.turbo/
+apps/*/.turbo/
+packages/*/.turbo/
 dist/
 packages/*/dist/
 packages/*/.svelte-kit/

@@ -19,6 +19,7 @@
     "build": "tsc -b && pnpm run build:package",
     "build:bundle": "tsup src/bin.ts --format esm --platform node --target node20 --out-dir dist --external @effect/cli --external @effect/experimental --external @effect/platform --external @effect/platform-node --external @effect/sql --external @effect/sql-sqlite-node --external better-sqlite3 --external effect && chmod +x dist/bin.js",
     "build:package": "rm -rf dist && pnpm run build:bundle && pnpm --dir ../../apps/web run build && cp -R ../../apps/web/dist dist/web",
+    "dev": "tsx src/bin.ts daemon start",
     "pack:dry-run": "npm pack --dry-run",
     "prepack": "pnpm run build",
     "test": "vitest run --root ../.. packages/cli/test",
