@@ -36,19 +36,12 @@ export const commentDrawerLineLabel = ({
   newLineNumber,
   oldLineNumber,
 }: Pick<CommentDrawerTarget, "newLineNumber" | "oldLineNumber">): string => {
-  if (oldLineNumber !== null && newLineNumber !== null) {
-    return `old ${oldLineNumber}, new ${newLineNumber}`;
-  }
+  const lineParts = [
+    oldLineNumber === null ? null : `old ${oldLineNumber}`,
+    newLineNumber === null ? null : `new ${newLineNumber}`,
+  ].filter((part): part is string => part !== null);
 
-  if (newLineNumber !== null) {
-    return `new ${newLineNumber}`;
-  }
-
-  if (oldLineNumber !== null) {
-    return `old ${oldLineNumber}`;
-  }
-
-  return "file";
+  return lineParts.length === 0 ? "file" : lineParts.join(", ");
 };
 
 export const commentDrawerCompactLabel = ({

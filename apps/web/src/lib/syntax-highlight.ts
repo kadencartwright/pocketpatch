@@ -73,25 +73,25 @@ const languageByFileName: Record<string, BundledLanguage> = {
 const isSupportedLanguage = (language: string): language is BundledLanguage =>
   Object.hasOwn(bundledLanguages, language);
 
-export const detectLanguageForPath = (path: string): BundledLanguage | null => {
+const supportedLanguage = (
+  language: BundledLanguage | undefined,
+): BundledLanguage | null =>
+  language !== undefined && isSupportedLanguage(language) ? language : null;
+
+const extensionForFileName = (fileName: string): string | null =>
+  fileName.includes(".") ? (fileName.split(".").at(-1) ?? null) : null;
+
+const detectLanguageForPath = (path: string): BundledLanguage | null => {
   const fileName = path.split("/").at(-1) ?? path;
-  const fileNameLanguage = languageByFileName[fileName];
+  const fileNameLanguage = supportedLanguage(languageByFileName[fileName]);
+  const extension = extensionForFileName(fileName);
 
-  if (fileNameLanguage !== undefined && isSupportedLanguage(fileNameLanguage)) {
-    return fileNameLanguage;
-  }
-
-  const extension = fileName.includes(".") ? fileName.split(".").at(-1) : null;
-  if (extension === undefined || extension === null) {
-    return null;
-  }
-
-  const extensionLanguage = languageByExtension[extension];
-
-  return extensionLanguage !== undefined &&
-    isSupportedLanguage(extensionLanguage)
-    ? extensionLanguage
-    : null;
+  return (
+    fileNameLanguage ??
+    supportedLanguage(
+      extension === null ? undefined : languageByExtension[extension],
+    )
+  );
 };
 
 const fallbackTokens = (line: DiffLine): HighlightedDiffLine => ({

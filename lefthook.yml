@@ -1,4 +1,4 @@
 pre-commit:
   commands:
-    lint-staged:
-      run: npx lint-staged
+    quality:
+      run: npx lint-staged && pnpm fallow

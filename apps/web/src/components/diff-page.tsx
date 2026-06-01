@@ -79,22 +79,6 @@ const lineKey = (
     oldLineNumber: line.oldLineNumber,
   });
 
-const commentLineLabel = (comment: ProjectCommentState) => {
-  if (comment.oldLineNumber !== null && comment.newLineNumber !== null) {
-    return `old ${comment.oldLineNumber}, new ${comment.newLineNumber}`;
-  }
-
-  if (comment.newLineNumber !== null) {
-    return `new ${comment.newLineNumber}`;
-  }
-
-  if (comment.oldLineNumber !== null) {
-    return `old ${comment.oldLineNumber}`;
-  }
-
-  return "file";
-};
-
 const commentStatusLabels = (comment: ProjectCommentState) =>
   [
     comment.resolvedAt === null ? "" : "resolved",
@@ -218,7 +202,7 @@ const CommentsPanel = ({
                         )}
                         <span className="text-[#7f848e]">
                           {" "}
-                          {commentLineLabel(comment)}
+                          {commentDrawerLineLabel(comment)}
                         </span>
                       </div>
                       {comment.resolvedAt === null ? (
@@ -388,6 +372,111 @@ const InlineComments = ({
   );
 };
 
+const DiffFileBody = ({
+  activeCommentTarget,
+  commentsByLine,
+  file,
+  onOpenCommentDrawer,
+  projectId,
+}: {
+  readonly activeCommentTarget: CommentDrawerTarget | null;
+  readonly commentsByLine: ProjectDiffPageData["commentsByLine"];
+  readonly file: HighlightedFileDiff;
+  readonly onOpenCommentDrawer: (
+    filePath: string,
+    line: CommentDrawerLine,
+    row: HTMLElement | null,
+  ) => void;
+  readonly projectId: string;
+}) => {
+  if (file.binary) {
+    return (
+      <p className="m-0 p-4 text-[#7f848e] text-sm">Binary file changed</p>
+    );
+  }
+
+  if (file.hunks.length === 0) {
+    return <p className="m-0 p-4 text-[#7f848e] text-sm">No text hunks</p>;
+  }
+
+  return (
+    <div className="min-w-0 max-w-full">
+      {file.hunks.map((hunk) => (
+        <div
+          className="max-w-full overflow-x-auto"
+          key={`${file.path}:${hunk.oldStart}:${hunk.newStart}`}
+        >
+          <section className="min-w-[520px] md:min-w-[720px]">
+            <header className="whitespace-pre bg-[#2c313a] px-3 py-2 font-mono text-[#56b6c2] text-[13px]">
+              @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},
+              {hunk.newLines} @@ {hunk.header}
+            </header>
+            {hunk.lines.map((line) => {
+              const comments = commentsByLine[lineKey(file.path, line)] ?? [];
+
+              return (
+                <div
+                  key={`${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${line.content}`}
+                >
+                  <DiffLineRow
+                    activeCommentTarget={activeCommentTarget}
+                    file={file}
+                    line={line}
+                    onOpenCommentDrawer={onOpenCommentDrawer}
+                  />
+                  <InlineComments comments={comments} projectId={projectId} />
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const DiffFileHeader = ({
+  file,
+  isCollapsed,
+  onToggleFile,
+}: {
+  readonly file: HighlightedFileDiff;
+  readonly isCollapsed: boolean;
+  readonly onToggleFile: (path: string) => void;
+}) => {
+  const collapseLabel = isCollapsed ? "Expand file" : "Collapse file";
+
+  return (
+    <header className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 bg-[#21252b] px-3 py-2.5 md:px-4">
+      <div className="min-w-0">
+        <p className="m-0 font-bold text-[#61afef] text-xs uppercase tracking-normal">
+          {file.status}
+        </p>
+        <h2 className="mt-0.5 font-bold text-base tracking-normal [overflow-wrap:anywhere]">
+          {statusLabel(file)}
+        </h2>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {file.truncated ? (
+          <span className="rounded-full bg-[#e5c07b]/20 px-2 py-1 font-bold text-[#e5c07b] text-xs">
+            Truncated
+          </span>
+        ) : null}
+        <button
+          aria-controls={`file-body-${file.path}`}
+          aria-expanded={!isCollapsed}
+          aria-label={collapseLabel}
+          className="size-8 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-lg leading-none hover:border-[#61afef] hover:bg-[#2c313a]"
+          onClick={() => onToggleFile(file.path)}
+          type="button"
+        >
+          {isCollapsed ? "+" : "-"}
+        </button>
+      </div>
+    </header>
+  );
+};
+
 const DiffFile = ({
   activeCommentTarget,
   commentsByLine,
@@ -413,78 +502,21 @@ const DiffFile = ({
     className="min-w-0 max-w-full border-[#3e4451] border-b bg-[#282c34]"
     id={`file-${file.path}`}
   >
-    <header className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 bg-[#21252b] px-3 py-2.5 md:px-4">
-      <div className="min-w-0">
-        <p className="m-0 font-bold text-[#61afef] text-xs uppercase tracking-normal">
-          {file.status}
-        </p>
-        <h2 className="mt-0.5 font-bold text-base tracking-normal [overflow-wrap:anywhere]">
-          {statusLabel(file)}
-        </h2>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {file.truncated ? (
-          <span className="rounded-full bg-[#e5c07b]/20 px-2 py-1 font-bold text-[#e5c07b] text-xs">
-            Truncated
-          </span>
-        ) : null}
-        <button
-          aria-controls={`file-body-${file.path}`}
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? "Expand file" : "Collapse file"}
-          className="size-8 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-lg leading-none hover:border-[#61afef] hover:bg-[#2c313a]"
-          onClick={() => onToggleFile(file.path)}
-          type="button"
-        >
-          {isCollapsed ? "+" : "-"}
-        </button>
-      </div>
-    </header>
+    <DiffFileHeader
+      file={file}
+      isCollapsed={isCollapsed}
+      onToggleFile={onToggleFile}
+    />
 
     {isCollapsed ? null : (
       <div id={`file-body-${file.path}`}>
-        {file.binary ? (
-          <p className="m-0 p-4 text-[#7f848e] text-sm">Binary file changed</p>
-        ) : file.hunks.length === 0 ? (
-          <p className="m-0 p-4 text-[#7f848e] text-sm">No text hunks</p>
-        ) : (
-          <div className="min-w-0 max-w-full">
-            {file.hunks.map((hunk) => (
-              <div
-                className="max-w-full overflow-x-auto"
-                key={`${file.path}:${hunk.oldStart}:${hunk.newStart}`}
-              >
-                <section className="min-w-[520px] md:min-w-[720px]">
-                  <header className="whitespace-pre bg-[#2c313a] px-3 py-2 font-mono text-[#56b6c2] text-[13px]">
-                    @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},
-                    {hunk.newLines} @@ {hunk.header}
-                  </header>
-                  {hunk.lines.map((line) => {
-                    const comments =
-                      commentsByLine[lineKey(file.path, line)] ?? [];
-
-                    return (
-                      <div
-                        key={`${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${line.content}`}
-                      >
-                        <DiffLineRow
-                          activeCommentTarget={activeCommentTarget}
-                          file={file}
-                          line={line}
-                          onOpenCommentDrawer={onOpenCommentDrawer}
-                        />
-                        <InlineComments
-                          comments={comments}
-                          projectId={projectId}
-                        />
-                      </div>
-                    );
-                  })}
-                </section>
-              </div>
-            ))}
-          </div>
-        )}
+        <DiffFileBody
+          activeCommentTarget={activeCommentTarget}
+          commentsByLine={commentsByLine}
+          file={file}
+          onOpenCommentDrawer={onOpenCommentDrawer}
+          projectId={projectId}
+        />
       </div>
     )}
   </article>

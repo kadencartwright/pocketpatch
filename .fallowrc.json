@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.fallow.tools/config.schema.json",
+  "duplicates": {
+    "ignore": ["**/test/**"]
+  },
+  "ignoreDependencies": [
+    "@pocketpatch/config",
+    "@pocketpatch/daemon",
+    "@pocketpatch/git",
+    "@pocketpatch/network",
+    "@pocketpatch/storage"
+  ],
+  "ignorePatterns": ["vendor/**"],
+  "usedClassMembers": ["message"]
+}
