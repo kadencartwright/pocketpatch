@@ -1,6 +1,6 @@
 {
   "name": "pocketpatch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Mobile-friendly local diff review for agent-generated code changes.",
   "license": "MIT",
   "author": "Kaden Cartwright <cartwrightkaden@gmail.com>",
