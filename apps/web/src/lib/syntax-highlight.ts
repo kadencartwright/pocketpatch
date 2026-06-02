@@ -1,5 +1,6 @@
 import { type BundledLanguage, bundledLanguages, codeToTokens } from "shiki";
 import type {
+  AvailableFileDiff,
   DiffHunk,
   DiffLine,
   FileDiff,
@@ -20,9 +21,13 @@ export type HighlightedDiffHunk = Omit<DiffHunk, "lines"> & {
   readonly lines: ReadonlyArray<HighlightedDiffLine>;
 };
 
-export type HighlightedFileDiff = Omit<FileDiff, "hunks"> & {
+export type HighlightedAvailableFileDiff = Omit<AvailableFileDiff, "hunks"> & {
   readonly hunks: ReadonlyArray<HighlightedDiffHunk>;
 };
+
+export type HighlightedFileDiff =
+  | HighlightedAvailableFileDiff
+  | Extract<FileDiff, { readonly availability: "skipped" }>;
 
 export type HighlightedProjectDiff = Omit<ProjectDiffResponse, "diffs"> & {
   readonly diffs: ReadonlyArray<HighlightedFileDiff>;
@@ -146,6 +151,10 @@ const highlightHunk = async (
 };
 
 const highlightFile = async (file: FileDiff): Promise<HighlightedFileDiff> => {
+  if (file.availability === "skipped") {
+    return file;
+  }
+
   const language = detectLanguageForPath(file.path);
   const hunks = await Promise.all(
     file.hunks.map((hunk) => highlightHunk(hunk, language)),

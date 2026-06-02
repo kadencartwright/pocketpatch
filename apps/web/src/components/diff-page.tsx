@@ -1,5 +1,6 @@
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { commentLineKey } from "../lib/comment-anchor";
 import {
   buildCommentDraftKey,
@@ -15,7 +16,12 @@ import {
   commentDrawerCompactLabel,
   commentDrawerLineLabel,
 } from "../lib/comment-drawer";
-import type { FileDiff } from "../lib/diff-client";
+import type {
+  AvailableFileDiff,
+  DiffFileSummary,
+  FileDiff,
+  SkippedFileDiff,
+} from "../lib/diff-client";
 import type {
   ProjectCommentState,
   ProjectDiffPageData,
@@ -39,10 +45,14 @@ type DiffStats = {
   readonly deletions: number;
 };
 
-type DiffLineKind = FileDiff["hunks"][number]["lines"][number]["kind"];
+type DiffLineKind = AvailableFileDiff["hunks"][number]["lines"][number]["kind"];
 
 const lineNumberClass = "select-none px-1 text-right text-[#5c6370] md:px-2";
 const emptyDiffStats: DiffStats = { additions: 0, deletions: 0 };
+const diffFileVirtualOverscan = 8;
+const estimatedDiffFileHeaderHeight = 74;
+const estimatedDiffLineHeight = 22;
+const estimatedDiffHunkHeaderHeight = 35;
 const diffStatsByLineKind: Record<DiffLineKind, DiffStats> = {
   add: { additions: 1, deletions: 0 },
   context: emptyDiffStats,
@@ -82,7 +92,7 @@ const getCommentDraftStorage = (): CommentDraftStorage | null =>
     ? null
     : globalThis.sessionStorage;
 
-const statusLabel = (file: FileDiff) =>
+const statusLabel = (file: FileDiff | DiffFileSummary) =>
   file.status === "renamed" && file.oldPath !== null
     ? `${file.oldPath} -> ${file.path}`
     : file.path;
@@ -101,7 +111,7 @@ const formatProjectTitle = ({
   readonly path: string;
 }) => `${anchorHomePath(path)}:${displayRef}`;
 
-const countDiffStats = (file: FileDiff): DiffStats => {
+const countDiffStats = (file: AvailableFileDiff): DiffStats => {
   let additions = 0;
   let deletions = 0;
 
@@ -123,7 +133,9 @@ const buildDiffStatsByPath = (
   const statsByPath = new Map<string, DiffStats>();
 
   for (const file of diffs) {
-    statsByPath.set(file.path, countDiffStats(file));
+    if (file.availability === "available") {
+      statsByPath.set(file.path, countDiffStats(file));
+    }
   }
 
   return statsByPath;
@@ -134,6 +146,10 @@ const countTotalDiffStats = (diffs: ReadonlyArray<FileDiff>): DiffStats => {
   let deletions = 0;
 
   for (const file of diffs) {
+    if (file.availability === "skipped") {
+      continue;
+    }
+
     const stats = countDiffStats(file);
 
     additions += stats.additions;
@@ -161,6 +177,27 @@ const commentStatusLabels = (comment: ProjectCommentState) =>
 
 const commentTargetHref = (comment: ProjectCommentState) =>
   `#file-${comment.filePath}`;
+
+const estimatedFileHeight = (file: HighlightedFileDiff): number => {
+  if (file.availability === "skipped") {
+    return estimatedDiffFileHeaderHeight;
+  }
+
+  if (file.binary || file.hunks.length === 0) {
+    return estimatedDiffFileHeaderHeight + 52;
+  }
+
+  return (
+    estimatedDiffFileHeaderHeight +
+    file.hunks.reduce(
+      (total, hunk) =>
+        total +
+        estimatedDiffHunkHeaderHeight +
+        hunk.lines.length * estimatedDiffLineHeight,
+      0,
+    )
+  );
+};
 
 const targetCodePreview = (target: CommentDrawerTarget) => {
   const preview = target.anchorLineContent.trim();
@@ -194,6 +231,37 @@ const DiffStatsBadge = ({
   );
 };
 
+const formatFileCount = (count: number): string =>
+  new Intl.NumberFormat("en-US").format(count);
+
+const formatByteCount = (count: number): string => {
+  if (count >= 1_000_000_000) {
+    return `${Math.round(count / 1_000_000_000)} GB`;
+  }
+
+  if (count >= 1_000_000) {
+    return `${Math.round(count / 1_000_000)} MB`;
+  }
+
+  if (count >= 1_000) {
+    return `${Math.round(count / 1_000)} KB`;
+  }
+
+  return `${count} B`;
+};
+
+const skippedSummary = (file: SkippedFileDiff): string => {
+  if (file.fileCount !== undefined) {
+    return `${formatFileCount(file.fileCount)} files skipped`;
+  }
+
+  if (file.byteCount !== undefined) {
+    return `${formatByteCount(file.byteCount)} file skipped`;
+  }
+
+  return file.reason === "binary_file" ? "Binary file skipped" : "Skipped";
+};
+
 const DiffStatsText = ({
   showZero = false,
   stats,
@@ -215,6 +283,23 @@ const DiffStatsText = ({
     </span>
   );
 };
+
+const DisclosureChevron = ({ open }: { readonly open: boolean }) => (
+  <svg
+    aria-hidden="true"
+    className={["size-4 transition-transform", open ? "rotate-180" : ""]
+      .filter(Boolean)
+      .join(" ")}
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2.25"
+    viewBox="0 0 24 24"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
 
 const BrandMark = () => (
   <div className="flex items-center gap-2">
@@ -299,9 +384,11 @@ const CommentStatus = ({
 
 const CommentsPanel = ({
   data,
+  onSelectFile,
   projectId,
 }: {
   readonly data: ProjectDiffPageData;
+  readonly onSelectFile: (path: string) => void;
   readonly projectId: string;
 }) => {
   const sections = [
@@ -339,6 +426,10 @@ const CommentsPanel = ({
                         <a
                           className="font-bold text-[#abb2bf] underline-offset-2 hover:text-[#61afef] [overflow-wrap:anywhere]"
                           href={commentTargetHref(comment)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelectFile(comment.filePath);
+                          }}
                         >
                           {comment.filePath}
                         </a>
@@ -374,6 +465,7 @@ const FilesSidebar = ({
   data,
   diffStatsByPath,
   filePickerCollapsed,
+  onSelectFile,
   setFilePickerCollapsed,
   totalDiffStats,
 }: {
@@ -381,6 +473,7 @@ const FilesSidebar = ({
   readonly data: ProjectDiffPageData;
   readonly diffStatsByPath: ReadonlyMap<string, DiffStats>;
   readonly filePickerCollapsed: boolean;
+  readonly onSelectFile: (path: string) => void;
   readonly setFilePickerCollapsed: (value: boolean) => void;
   readonly totalDiffStats: DiffStats;
 }) => (
@@ -401,11 +494,11 @@ const FilesSidebar = ({
         aria-controls="changed-files"
         aria-expanded={!filePickerCollapsed}
         aria-label={filePickerCollapsed ? "Show files" : "Hide files"}
-        className="size-7 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-base leading-none hover:border-[#61afef] hover:bg-[#2c313a] md:hidden"
+        className="grid size-8 place-items-center rounded-md border border-[#3e4451] text-[#abb2bf] hover:border-[#61afef] hover:bg-[#2c313a] md:hidden"
         onClick={() => setFilePickerCollapsed(!filePickerCollapsed)}
         type="button"
       >
-        {filePickerCollapsed ? "+" : "-"}
+        <DisclosureChevron open={!filePickerCollapsed} />
       </button>
     </div>
     <nav
@@ -419,6 +512,10 @@ const FilesSidebar = ({
           className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-1.5 text-[#abb2bf] text-sm no-underline hover:bg-[#2c313a] md:px-2.5 md:py-2"
           href={`#file-${file.path}`}
           key={file.path}
+          onClick={(event) => {
+            event.preventDefault();
+            onSelectFile(file.path);
+          }}
         >
           <span className="min-w-0">
             <span
@@ -432,9 +529,15 @@ const FilesSidebar = ({
               {file.path}
             </span>
           </span>
-          <DiffStatsBadge
-            stats={diffStatsByPath.get(file.path) ?? emptyDiffStats}
-          />
+          {file.availability === "skipped" ? (
+            <span className="rounded-sm bg-[#e5c07b]/15 px-1.5 py-0.5 font-bold text-[#e5c07b] text-[11px] uppercase">
+              Skipped
+            </span>
+          ) : (
+            <DiffStatsBadge
+              stats={diffStatsByPath.get(file.path) ?? emptyDiffStats}
+            />
+          )}
         </a>
       ))}
     </nav>
@@ -546,7 +649,10 @@ const DiffFileBody = ({
 }: {
   readonly activeCommentTarget: CommentDrawerTarget | null;
   readonly commentsByLine: ProjectDiffPageData["commentsByLine"];
-  readonly file: HighlightedFileDiff;
+  readonly file: Extract<
+    HighlightedFileDiff,
+    { readonly availability: "available" }
+  >;
   readonly onOpenCommentDrawer: (
     filePath: string,
     line: CommentDrawerLine,
@@ -605,7 +711,10 @@ const DiffFileHeader = ({
   isCollapsed,
   onToggleFile,
 }: {
-  readonly file: HighlightedFileDiff;
+  readonly file: Extract<
+    HighlightedFileDiff,
+    { readonly availability: "available" }
+  >;
   readonly isCollapsed: boolean;
   readonly onToggleFile: (path: string) => void;
 }) => {
@@ -621,11 +730,6 @@ const DiffFileHeader = ({
           </p>
           <span className="text-[#5c6370]">·</span>
           <DiffStatsText stats={stats} />
-          {file.truncated ? (
-            <span className="rounded-sm bg-[#e5c07b]/15 px-1.5 py-0.5 font-bold text-[#e5c07b] text-[11px] uppercase">
-              Truncated
-            </span>
-          ) : null}
         </div>
         <h2 className="mt-0.5 font-bold text-base tracking-normal [overflow-wrap:anywhere]">
           {statusLabel(file)}
@@ -636,11 +740,11 @@ const DiffFileHeader = ({
           aria-controls={`file-body-${file.path}`}
           aria-expanded={!isCollapsed}
           aria-label={collapseLabel}
-          className="size-8 rounded-md border border-[#3e4451] font-bold text-[#abb2bf] text-lg leading-none hover:border-[#61afef] hover:bg-[#2c313a]"
+          className="grid size-8 place-items-center rounded-md border border-[#3e4451] text-[#abb2bf] hover:border-[#61afef] hover:bg-[#2c313a]"
           onClick={() => onToggleFile(file.path)}
           type="button"
         >
-          {isCollapsed ? "+" : "-"}
+          <DisclosureChevron open={!isCollapsed} />
         </button>
       </div>
     </header>
@@ -658,7 +762,10 @@ const DiffFile = ({
 }: {
   readonly activeCommentTarget: CommentDrawerTarget | null;
   readonly commentsByLine: ProjectDiffPageData["commentsByLine"];
-  readonly file: HighlightedFileDiff;
+  readonly file: Extract<
+    HighlightedFileDiff,
+    { readonly availability: "available" }
+  >;
   readonly isCollapsed: boolean;
   readonly onOpenCommentDrawer: (
     filePath: string,
@@ -689,6 +796,30 @@ const DiffFile = ({
         />
       </div>
     )}
+  </article>
+);
+
+export const SkippedDiffFile = ({
+  file,
+}: {
+  readonly file: SkippedFileDiff;
+}) => (
+  <article
+    className="min-w-0 max-w-full border-[#3e4451] border-b bg-[#282c34]"
+    id={`file-${file.path}`}
+  >
+    <header className="grid min-w-0 max-w-full gap-1 bg-[#21252b] px-3 py-2.5 md:px-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <p className="m-0 font-semibold text-[#e5c07b] text-xs uppercase tracking-normal">
+          SKIPPED
+        </p>
+        <span className="text-[#5c6370]">·</span>
+        <span className="text-[#7f848e] text-xs">{skippedSummary(file)}</span>
+      </div>
+      <h2 className="m-0 font-bold text-base tracking-normal [overflow-wrap:anywhere]">
+        {statusLabel(file)}
+      </h2>
+    </header>
   </article>
 );
 
@@ -810,10 +941,13 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
   const [activeCommentTarget, setActiveCommentTarget] =
     useState<CommentDrawerTarget | null>(null);
   const [commentDraftText, setCommentDraftText] = useState("");
+  const diffFiles = data.highlightedDiff.diffs;
+  const diffVirtualContainer = useRef<HTMLElement | null>(null);
   const activeCommentRow = useRef<HTMLElement | null>(null);
   const commentTextarea = useRef<HTMLTextAreaElement | null>(null);
   const lineVisibilityTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const pendingFocusTargetKey = useRef<string | null>(null);
+  const [diffVirtualScrollMargin, setDiffVirtualScrollMargin] = useState(0);
   const createComment = useCreateCommentMutation(projectId);
   const diffStatsByPath = useMemo(
     () => buildDiffStatsByPath(data.diff.diffs),
@@ -823,6 +957,37 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
     () => countTotalDiffStats(data.diff.diffs),
     [data.diff.diffs],
   );
+  const fileIndexByPath = useMemo(
+    () => new Map(diffFiles.map((file, index) => [file.path, index])),
+    [diffFiles],
+  );
+  const diffFileVirtualizer = useWindowVirtualizer<HTMLDivElement>({
+    count: diffFiles.length,
+    estimateSize: (index) => {
+      const file = diffFiles[index];
+
+      return file === undefined || collapsedFiles[file.path] === true
+        ? estimatedDiffFileHeaderHeight
+        : estimatedFileHeight(file);
+    },
+    getItemKey: (index) => diffFiles[index]?.path ?? index,
+    overscan: diffFileVirtualOverscan,
+    scrollMargin: diffVirtualScrollMargin,
+  });
+
+  useLayoutEffect(() => {
+    setDiffVirtualScrollMargin(diffVirtualContainer.current?.offsetTop ?? 0);
+  });
+
+  useLayoutEffect(() => {
+    const updateScrollMargin = () => {
+      setDiffVirtualScrollMargin(diffVirtualContainer.current?.offsetTop ?? 0);
+    };
+    updateScrollMargin();
+    window.addEventListener("resize", updateScrollMargin);
+
+    return () => window.removeEventListener("resize", updateScrollMargin);
+  }, []);
 
   const draftKeyForLine = (key: string) =>
     buildCommentDraftKey({
@@ -938,6 +1103,18 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
     }));
   };
 
+  const scrollToFile = (path: string) => {
+    const index = fileIndexByPath.get(path);
+
+    if (index === undefined) {
+      return;
+    }
+
+    diffFileVirtualizer.scrollToIndex(index, {
+      align: "start",
+    });
+  };
+
   return (
     <main className="min-h-screen bg-[#282c34] text-[#abb2bf]">
       <header className="border-[#3e4451] border-b bg-[#21252b] p-4 md:p-6">
@@ -952,7 +1129,11 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
         </div>
       </header>
 
-      <CommentsPanel data={data} projectId={projectId} />
+      <CommentsPanel
+        data={data}
+        onSelectFile={scrollToFile}
+        projectId={projectId}
+      />
 
       <div className="grid min-h-[calc(100vh-105px)] content-start md:grid-cols-[280px_minmax(0,1fr)]">
         <FilesSidebar
@@ -960,26 +1141,58 @@ export const DiffPage = ({ data, projectId }: DiffPageProps) => {
           data={data}
           diffStatsByPath={diffStatsByPath}
           filePickerCollapsed={filePickerCollapsed}
+          onSelectFile={scrollToFile}
           setFilePickerCollapsed={setFilePickerCollapsed}
           totalDiffStats={totalDiffStats}
         />
 
         <section
           aria-label="Diffs"
-          className="grid min-w-0 max-w-full content-start overflow-hidden"
+          className="min-w-0 max-w-full overflow-hidden"
+          ref={diffVirtualContainer}
         >
-          {data.highlightedDiff.diffs.map((file) => (
-            <DiffFile
-              activeCommentTarget={activeCommentTarget}
-              commentsByLine={data.commentsByLine}
-              file={file}
-              isCollapsed={collapsedFiles[file.path] === true}
-              key={file.path}
-              onOpenCommentDrawer={openCommentDrawer}
-              onToggleFile={toggleFile}
-              projectId={projectId}
-            />
-          ))}
+          <div
+            className="relative w-full"
+            style={{
+              height: `${diffFileVirtualizer.getTotalSize()}px`,
+            }}
+          >
+            {diffFileVirtualizer.getVirtualItems().map((virtualFile) => {
+              const file = diffFiles[virtualFile.index];
+
+              if (file === undefined) {
+                return null;
+              }
+
+              return (
+                <div
+                  className="absolute top-0 left-0 w-full"
+                  data-index={virtualFile.index}
+                  key={virtualFile.key}
+                  ref={diffFileVirtualizer.measureElement}
+                  style={{
+                    transform: `translateY(${
+                      virtualFile.start - diffVirtualScrollMargin
+                    }px)`,
+                  }}
+                >
+                  {file.availability === "skipped" ? (
+                    <SkippedDiffFile file={file} />
+                  ) : (
+                    <DiffFile
+                      activeCommentTarget={activeCommentTarget}
+                      commentsByLine={data.commentsByLine}
+                      file={file}
+                      isCollapsed={collapsedFiles[file.path] === true}
+                      onOpenCommentDrawer={openCommentDrawer}
+                      onToggleFile={toggleFile}
+                      projectId={projectId}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </section>
       </div>
 

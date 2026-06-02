@@ -48,6 +48,10 @@ const buildCurrentDiffLines = (
   const lines: Array<CurrentDiffLine> = [];
 
   for (const file of diff.diffs) {
+    if (file.availability === "skipped") {
+      continue;
+    }
+
     for (const hunk of file.hunks) {
       for (const line of hunk.lines) {
         lines.push({

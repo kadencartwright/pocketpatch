@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { Context, Effect, Layer, Schema } from "effect";
 
@@ -34,12 +34,14 @@ export type GitRef = {
 };
 
 export const ChangedFileSchema = Schema.Struct({
+  availability: Schema.Literal("available", "skipped"),
   oldPath: Schema.NullOr(Schema.String),
   path: Schema.String,
   status: GitFileStatusSchema,
 });
 
 export type ChangedFile = {
+  readonly availability: "available" | "skipped";
   readonly oldPath: string | null;
   readonly path: string;
   readonly status: GitFileStatus;
@@ -77,20 +79,54 @@ export type DiffHunk = {
   readonly oldStart: number;
 };
 
-export const FileDiffSchema = Schema.Struct({
+export const SkippedReasonSchema = Schema.Literal(
+  "binary_file",
+  "dense_directory",
+  "generated_directory",
+  "large_file",
+  "too_many_files",
+);
+
+export type SkippedReason = typeof SkippedReasonSchema.Type;
+
+export const AvailableFileDiffSchema = Schema.Struct({
+  availability: Schema.Literal("available"),
   binary: Schema.Boolean,
   hunks: Schema.Array(DiffHunkSchema),
   oldPath: Schema.NullOr(Schema.String),
   path: Schema.String,
   status: GitFileStatusSchema,
-  truncated: Schema.Boolean,
 });
 
-export type FileDiff = ChangedFile & {
+export const SkippedFileDiffSchema = Schema.Struct({
+  availability: Schema.Literal("skipped"),
+  byteCount: Schema.optional(Schema.Number),
+  fileCount: Schema.optional(Schema.Number),
+  oldPath: Schema.NullOr(Schema.String),
+  path: Schema.String,
+  reason: SkippedReasonSchema,
+  status: GitFileStatusSchema,
+});
+
+export const FileDiffSchema = Schema.Union(
+  AvailableFileDiffSchema,
+  SkippedFileDiffSchema,
+);
+
+export type AvailableFileDiff = ChangedFile & {
+  readonly availability: "available";
   readonly binary: boolean;
   readonly hunks: ReadonlyArray<DiffHunk>;
-  readonly truncated: boolean;
 };
+
+export type SkippedFileDiff = ChangedFile & {
+  readonly availability: "skipped";
+  readonly byteCount?: number;
+  readonly fileCount?: number;
+  readonly reason: SkippedReason;
+};
+
+export type FileDiff = AvailableFileDiff | SkippedFileDiff;
 
 export const RepositorySnapshotSchema = Schema.Struct({
   diffs: Schema.Array(FileDiffSchema),
@@ -108,8 +144,24 @@ export type RepositorySnapshot = {
 
 export type InspectRepositoryOptions = {
   readonly maxFileDiffLines?: number;
+  readonly maxUntrackedFileBytes?: number;
+  readonly maxUntrackedFilesPerDirectory?: number;
   readonly path: string;
 };
+
+const defaultMaxUntrackedFileBytes = 1024 * 1024;
+const defaultMaxUntrackedFilesPerDirectory = 500;
+const generatedDirectoryRoots = [
+  ".cache/",
+  ".next/",
+  ".pnpm-store/",
+  ".turbo/",
+  ".yarn/cache/",
+  "build/",
+  "coverage/",
+  "dist/",
+  "node_modules/",
+] as const;
 
 export class GitCommandError extends Schema.TaggedError<GitCommandError>()(
   "GitCommandError",
@@ -174,11 +226,13 @@ export const parseChangedFiles = (
 
       return status === "renamed"
         ? {
+            availability: "available",
             oldPath: firstPath,
             path: secondPath ?? firstPath,
             status,
           }
         : {
+            availability: "available",
             oldPath: null,
             path: firstPath,
             status,
@@ -189,6 +243,7 @@ export const parseChangedFiles = (
     .filter((path) => path.length > 0)
     .map(
       (path): ChangedFile => ({
+        availability: "available",
         oldPath: null,
         path,
         status: "untracked",
@@ -215,40 +270,6 @@ const parseHunkHeader = (line: string) => {
     newStart: Number(match.groups.newStart),
     oldLines: Number(match.groups.oldLines ?? "1"),
     oldStart: Number(match.groups.oldStart),
-  };
-};
-
-const truncateHunks = (
-  hunks: ReadonlyArray<DiffHunk>,
-  maxFileDiffLines: number,
-) => {
-  let remaining = maxFileDiffLines;
-  let truncated = false;
-  const nextHunks: Array<DiffHunk> = [];
-
-  for (const hunk of hunks) {
-    if (remaining <= 0) {
-      truncated = true;
-      break;
-    }
-
-    if (hunk.lines.length <= remaining) {
-      nextHunks.push(hunk);
-      remaining -= hunk.lines.length;
-      continue;
-    }
-
-    nextHunks.push({
-      ...hunk,
-      lines: hunk.lines.slice(0, remaining),
-    });
-    truncated = true;
-    remaining = 0;
-  }
-
-  return {
-    hunks: nextHunks,
-    truncated,
   };
 };
 
@@ -282,16 +303,37 @@ const finishFile = (state: DiffParserState, maxFileDiffLines: number) => {
   }
 
   finishHunk(state);
-  const truncated = truncateHunks(state.current.hunks, maxFileDiffLines);
+  const lineCount = state.current.hunks.reduce(
+    (total, hunk) => total + hunk.lines.length,
+    0,
+  );
 
-  state.parsed.push({
-    binary: state.current.binary,
-    hunks: truncated.hunks,
-    oldPath: state.current.oldPath,
-    path: state.current.path,
-    status: state.current.status,
-    truncated: truncated.truncated,
-  });
+  state.parsed.push(
+    state.current.binary
+      ? {
+          availability: "skipped",
+          oldPath: state.current.oldPath,
+          path: state.current.path,
+          reason: "binary_file",
+          status: state.current.status,
+        }
+      : lineCount > maxFileDiffLines
+        ? {
+            availability: "skipped",
+            oldPath: state.current.oldPath,
+            path: state.current.path,
+            reason: "large_file",
+            status: state.current.status,
+          }
+        : {
+            availability: "available",
+            binary: false,
+            hunks: state.current.hunks,
+            oldPath: state.current.oldPath,
+            path: state.current.path,
+            status: state.current.status,
+          },
+  );
   state.current = null;
 };
 
@@ -435,6 +477,16 @@ const makeUntrackedDiff = (
   const lines = contents.endsWith("\n")
     ? contents.slice(0, -1).split("\n")
     : contents.split("\n");
+  if (lines.length > maxFileDiffLines) {
+    return {
+      availability: "skipped",
+      oldPath: file.oldPath,
+      path: file.path,
+      reason: "large_file",
+      status: file.status,
+    };
+  }
+
   const hunk: DiffHunk = {
     header: "",
     lines: lines.map((content, index) => ({
@@ -448,15 +500,14 @@ const makeUntrackedDiff = (
     oldLines: 0,
     oldStart: 0,
   };
-  const truncated = truncateHunks([hunk], maxFileDiffLines);
 
   return {
+    availability: "available",
     binary: false,
-    hunks: truncated.hunks,
+    hunks: [hunk],
     oldPath: file.oldPath,
     path: file.path,
     status: file.status,
-    truncated: truncated.truncated,
   };
 };
 
@@ -464,6 +515,7 @@ const inspectUntrackedFile = (
   repoPath: string,
   file: ChangedFile,
   maxFileDiffLines: number,
+  maxUntrackedFileBytes: number,
 ): Effect.Effect<FileDiff, GitCommandError> =>
   Effect.tryPromise({
     catch: (cause) =>
@@ -473,23 +525,205 @@ const inspectUntrackedFile = (
         cwd: repoPath,
       }),
     try: async () => {
+      const fileStat = await stat(join(repoPath, file.path));
+
+      if (fileStat.size > maxUntrackedFileBytes) {
+        return {
+          availability: "skipped",
+          byteCount: fileStat.size,
+          oldPath: file.oldPath,
+          path: file.path,
+          reason: "large_file",
+          status: file.status,
+        };
+      }
+
       const buffer = await readFile(join(repoPath, file.path));
 
       return isBinaryBuffer(buffer)
         ? {
-            binary: true,
-            hunks: [],
+            availability: "skipped",
             oldPath: file.oldPath,
             path: file.path,
+            reason: "binary_file",
             status: file.status,
-            truncated: false,
           }
         : makeUntrackedDiff(file, buffer.toString("utf8"), maxFileDiffLines);
     },
   });
 
+const generatedDirectoryRootForPath = (path: string): string | null => {
+  for (const root of generatedDirectoryRoots) {
+    if (path === root.slice(0, -1) || path.startsWith(root)) {
+      return root;
+    }
+  }
+
+  return null;
+};
+
+const directoryForPath = (path: string): string => {
+  const directory = dirname(path);
+
+  return directory === "." ? "" : `${directory}/`;
+};
+
+const directoriesForPath = (path: string): ReadonlyArray<string> => {
+  const directory = directoryForPath(path);
+
+  if (directory === "") {
+    return [];
+  }
+
+  const parts = directory.replace(/\/$/, "").split("/");
+
+  return parts.map((_, index) => `${parts.slice(0, index + 1).join("/")}/`);
+};
+
+const skippedGroup = ({
+  fileCount,
+  path,
+  reason,
+}: {
+  readonly fileCount: number;
+  readonly path: string;
+  readonly reason: Extract<
+    SkippedReason,
+    "dense_directory" | "generated_directory" | "too_many_files"
+  >;
+}): SkippedFileDiff => ({
+  availability: "skipped",
+  fileCount,
+  oldPath: null,
+  path,
+  reason,
+  status: "untracked",
+});
+
+const incrementCount = (counts: Map<string, number>, key: string): void => {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+};
+
+const skippedGroupsFromCounts = (
+  counts: ReadonlyMap<string, number>,
+  reason: Extract<
+    SkippedReason,
+    "dense_directory" | "generated_directory" | "too_many_files"
+  >,
+): ReadonlyArray<SkippedFileDiff> =>
+  [...counts.entries()].map(([path, fileCount]) =>
+    skippedGroup({
+      fileCount,
+      path,
+      reason,
+    }),
+  );
+
+const splitGeneratedUntrackedFiles = (
+  files: ReadonlyArray<ChangedFile>,
+): {
+  readonly generated: ReadonlyMap<string, number>;
+  readonly nonGenerated: ReadonlyArray<ChangedFile>;
+} => {
+  const generated = new Map<string, number>();
+  const nonGenerated: Array<ChangedFile> = [];
+
+  for (const file of files) {
+    const generatedRoot = generatedDirectoryRootForPath(file.path);
+
+    if (generatedRoot === null) {
+      nonGenerated.push(file);
+    } else {
+      incrementCount(generated, generatedRoot);
+    }
+  }
+
+  return { generated, nonGenerated };
+};
+
+const countUntrackedDirectoryAncestors = (
+  files: ReadonlyArray<ChangedFile>,
+): ReadonlyMap<string, number> => {
+  const counts = new Map<string, number>();
+
+  for (const file of files) {
+    for (const directory of directoriesForPath(file.path)) {
+      incrementCount(counts, directory);
+    }
+  }
+
+  return counts;
+};
+
+const denseDirectoryForFile = (
+  file: ChangedFile,
+  directoryCounts: ReadonlyMap<string, number>,
+  maxUntrackedFilesPerDirectory: number,
+): string | undefined =>
+  directoriesForPath(file.path)
+    .toReversed()
+    .find(
+      (directory) =>
+        (directoryCounts.get(directory) ?? 0) > maxUntrackedFilesPerDirectory,
+    );
+
+const splitDenseUntrackedFiles = (
+  files: ReadonlyArray<ChangedFile>,
+  maxUntrackedFilesPerDirectory: number,
+): {
+  readonly dense: ReadonlyMap<string, number>;
+  readonly inspectable: ReadonlyArray<ChangedFile>;
+} => {
+  const directoryCounts = countUntrackedDirectoryAncestors(files);
+  const dense = new Map<string, number>();
+  const inspectable: Array<ChangedFile> = [];
+
+  for (const file of files) {
+    const denseDirectory = denseDirectoryForFile(
+      file,
+      directoryCounts,
+      maxUntrackedFilesPerDirectory,
+    );
+
+    if (denseDirectory === undefined) {
+      inspectable.push(file);
+    } else {
+      incrementCount(dense, denseDirectory);
+    }
+  }
+
+  return { dense, inspectable };
+};
+
+const partitionUntrackedFiles = (
+  files: ReadonlyArray<ChangedFile>,
+  maxUntrackedFilesPerDirectory: number,
+): {
+  readonly inspectable: ReadonlyArray<ChangedFile>;
+  readonly skipped: ReadonlyArray<SkippedFileDiff>;
+} => {
+  const generatedSplit = splitGeneratedUntrackedFiles(files);
+  const denseSplit = splitDenseUntrackedFiles(
+    generatedSplit.nonGenerated,
+    maxUntrackedFilesPerDirectory,
+  );
+
+  return {
+    inspectable: denseSplit.inspectable,
+    skipped: [
+      ...skippedGroupsFromCounts(
+        generatedSplit.generated,
+        "generated_directory",
+      ),
+      ...skippedGroupsFromCounts(denseSplit.dense, "dense_directory"),
+    ],
+  };
+};
+
 export const inspectRepository = ({
   maxFileDiffLines = 5_000,
+  maxUntrackedFileBytes = defaultMaxUntrackedFileBytes,
+  maxUntrackedFilesPerDirectory = defaultMaxUntrackedFilesPerDirectory,
   path,
 }: InspectRepositoryOptions): Effect.Effect<
   RepositorySnapshot,
@@ -526,7 +760,10 @@ export const inspectRepository = ({
     );
     const files = parseChangedFiles(nameStatus, untracked);
     const trackedFiles = files.filter((file) => file.status !== "untracked");
-    const untrackedFiles = files.filter((file) => file.status === "untracked");
+    const untrackedFiles = partitionUntrackedFiles(
+      files.filter((file) => file.status === "untracked"),
+      maxUntrackedFilesPerDirectory,
+    );
     const trackedDiff =
       trackedFiles.length === 0
         ? []
@@ -543,16 +780,31 @@ export const inspectRepository = ({
             maxFileDiffLines,
             binaryPaths,
           );
-    const untrackedDiffs = yield* Effect.forEach(untrackedFiles, (file) =>
-      inspectUntrackedFile(path, file, maxFileDiffLines),
+    const untrackedDiffs = yield* Effect.forEach(
+      untrackedFiles.inspectable,
+      (file) =>
+        inspectUntrackedFile(
+          path,
+          file,
+          maxFileDiffLines,
+          maxUntrackedFileBytes,
+        ),
     );
     const branchName = branch._tag === "Some" ? branch.value.trim() : null;
+    const diffs = [
+      ...trackedDiff,
+      ...untrackedDiffs,
+      ...untrackedFiles.skipped,
+    ].sort((left, right) => left.path.localeCompare(right.path));
 
     return {
-      diffs: [...trackedDiff, ...untrackedDiffs].sort((left, right) =>
-        left.path.localeCompare(right.path),
-      ),
-      files,
+      diffs,
+      files: diffs.map(({ availability, oldPath, path, status }) => ({
+        availability,
+        oldPath,
+        path,
+        status,
+      })),
       path,
       ref: {
         branch: branchName,

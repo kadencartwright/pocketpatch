@@ -94,16 +94,17 @@ const GitTest = Layer.succeed(GitService, {
     Effect.succeed({
       diffs: [
         {
+          availability: "available" as const,
           binary: false,
           hunks: [],
           oldPath: null,
           path: "tracked.ts",
           status: "modified",
-          truncated: false,
         },
       ],
       files: [
         {
+          availability: "available" as const,
           oldPath: null,
           path: "tracked.ts",
           status: "modified",
@@ -223,16 +224,17 @@ describe("daemon Effect HTTP app", () => {
         expect(body).toEqual({
           diffs: [
             {
+              availability: "available",
               binary: false,
               hunks: [],
               oldPath: null,
               path: "tracked.ts",
               status: "modified",
-              truncated: false,
             },
           ],
           files: [
             {
+              availability: "available",
               oldPath: null,
               path: "tracked.ts",
               status: "modified",
@@ -259,6 +261,32 @@ describe("daemon Effect HTTP app", () => {
     );
 
     await Effect.runPromise(program);
+  });
+
+  test("times out slow project diff inspections", async () => {
+    const error = await Effect.runPromise(
+      Effect.flip(
+        Daemon.inspectProjectDiffSnapshot({
+          git: {
+            inspectRepository: () => Effect.never,
+          },
+          project: {
+            createdAt: "2026-05-29T12:00:00.000Z",
+            id: 1,
+            lastSeenAt: "2026-05-29T12:00:00.000Z",
+            path: "/home/k/code/pocketpatch",
+          },
+          projectId: 1,
+          timeoutMs: 1,
+        }),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: "ProjectDiffInspectionTimeoutError",
+      projectId: 1,
+      timeoutMs: 1,
+    });
   });
 
   test("serves comments through Effect Platform", async () => {

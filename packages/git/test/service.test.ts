@@ -43,6 +43,7 @@ describe("GitService", () => {
     expect(result.path).toBe(path);
     expect(result.files).toEqual([
       {
+        availability: "available",
         oldPath: null,
         path: "tracked.ts",
         status: "modified",

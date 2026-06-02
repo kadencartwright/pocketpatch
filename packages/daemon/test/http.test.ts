@@ -90,6 +90,7 @@ const GitTest = Layer.succeed(GitService, {
     Effect.succeed({
       diffs: [
         {
+          availability: "available",
           binary: false,
           hunks: [
             {
@@ -111,11 +112,11 @@ const GitTest = Layer.succeed(GitService, {
           oldPath: null,
           path: "tracked.ts",
           status: "modified" as const,
-          truncated: false,
         },
       ],
       files: [
         {
+          availability: "available",
           oldPath: null,
           path: "tracked.ts",
           status: "modified" as const,
@@ -333,6 +334,7 @@ describe("daemon HTTP handler", () => {
     await expect(response.json()).resolves.toEqual({
       diffs: [
         {
+          availability: "available",
           binary: false,
           hunks: [
             {
@@ -354,11 +356,11 @@ describe("daemon HTTP handler", () => {
           oldPath: null,
           path: "tracked.ts",
           status: "modified",
-          truncated: false,
         },
       ],
       files: [
         {
+          availability: "available",
           oldPath: null,
           path: "tracked.ts",
           status: "modified",

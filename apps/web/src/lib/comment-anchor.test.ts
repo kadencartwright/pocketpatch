@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { attachCommentsToCurrentDiff, commentLineKey } from "./comment-anchor";
 import type {
+  AvailableFileDiff,
   FileDiff,
   ProjectComment,
   ProjectDiffResponse,
@@ -36,6 +37,7 @@ const diff = (file: FileDiff): ProjectDiffResponse => ({
   diffs: [file],
   files: [
     {
+      availability: file.availability,
       oldPath: file.oldPath,
       path: file.path,
       status: file.status,
@@ -45,7 +47,10 @@ const diff = (file: FileDiff): ProjectDiffResponse => ({
   ref,
 });
 
-const fileDiff = (override: Partial<FileDiff> = {}): FileDiff => ({
+const fileDiff = (
+  override: Partial<AvailableFileDiff> = {},
+): AvailableFileDiff => ({
+  availability: "available",
   binary: false,
   hunks: [
     {
@@ -67,7 +72,6 @@ const fileDiff = (override: Partial<FileDiff> = {}): FileDiff => ({
   oldPath: null,
   path: "src/form.ts",
   status: "modified",
-  truncated: false,
   ...override,
 });
 

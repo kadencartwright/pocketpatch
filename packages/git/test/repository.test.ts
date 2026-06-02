@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -43,16 +43,19 @@ describe("git repository inspection", () => {
     expect(snapshot.ref.displayName).toBe("main");
     expect(snapshot.files).toEqual([
       {
+        availability: "available",
         path: "renamed.txt",
         oldPath: "rename-me.txt",
         status: "renamed",
       },
       {
+        availability: "available",
         path: "tracked.ts",
         oldPath: null,
         status: "modified",
       },
       {
+        availability: "available",
         path: "untracked.md",
         oldPath: null,
         status: "untracked",
@@ -71,6 +74,7 @@ describe("git repository inspection", () => {
     expect(snapshot.diffs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          availability: "available",
           binary: false,
           hunks: [
             expect.objectContaining({
@@ -93,9 +97,9 @@ describe("git repository inspection", () => {
           oldPath: null,
           path: "tracked.ts",
           status: "modified",
-          truncated: false,
         }),
         expect.objectContaining({
+          availability: "available",
           binary: false,
           hunks: [
             expect.objectContaining({
@@ -112,7 +116,6 @@ describe("git repository inspection", () => {
           oldPath: null,
           path: "untracked.md",
           status: "untracked",
-          truncated: false,
         }),
       ]),
     );
@@ -129,13 +132,14 @@ describe("git repository inspection", () => {
     expect(snapshot.diffs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          binary: true,
-          hunks: [],
+          availability: "skipped",
           oldPath: null,
           path: "binary.bin",
+          reason: "binary_file",
           status: "modified",
         }),
         expect.objectContaining({
+          availability: "available",
           binary: false,
           oldPath: "rename-me.txt",
           path: "renamed.txt",
@@ -145,7 +149,7 @@ describe("git repository inspection", () => {
     );
   });
 
-  test("truncates large text diffs at the configured line limit", async () => {
+  test("skips large text diffs at the configured line limit", async () => {
     const path = await makeRepository();
     const lines = Array.from({ length: 50 }, (_, index) => `line ${index}`);
 
@@ -161,7 +165,123 @@ describe("git repository inspection", () => {
       (candidate) => candidate.path === "untracked-large.txt",
     );
 
-    expect(diff?.truncated).toBe(true);
-    expect(diff?.hunks.flatMap((hunk) => hunk.lines)).toHaveLength(5);
+    expect(diff).toEqual(
+      expect.objectContaining({
+        availability: "skipped",
+        path: "untracked-large.txt",
+        reason: "large_file",
+      }),
+    );
+  });
+
+  test("collapses generated untracked directories into skipped rows", async () => {
+    const path = await makeRepository();
+    const storePath = join(path, ".pnpm-store/v3/files/00");
+
+    await mkdir(storePath, { recursive: true });
+    await writeFile(join(storePath, "cached-package"), "cache payload\n");
+    await writeFile(join(path, "untracked.md"), "# Review me\n");
+
+    const snapshot = await Effect.runPromise(Git.inspectRepository({ path }));
+
+    expect(snapshot.diffs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          availability: "available",
+          path: "untracked.md",
+          status: "untracked",
+        }),
+        expect.objectContaining({
+          availability: "skipped",
+          fileCount: 1,
+          oldPath: null,
+          path: ".pnpm-store/",
+          reason: "generated_directory",
+          status: "untracked",
+        }),
+      ]),
+    );
+  });
+
+  test("collapses dense untracked directories into skipped rows", async () => {
+    const path = await makeRepository();
+    const generatedPath = join(path, "fixtures/generated");
+
+    await mkdir(generatedPath, { recursive: true });
+    await writeFile(join(generatedPath, "case-1.json"), "{}\n");
+    await writeFile(join(generatedPath, "case-2.json"), "{}\n");
+    await writeFile(join(generatedPath, "case-3.json"), "{}\n");
+    await writeFile(join(path, "notes.md"), "small\n");
+
+    const snapshot = await Effect.runPromise(
+      Git.inspectRepository({
+        maxUntrackedFilesPerDirectory: 2,
+        path,
+      }),
+    );
+
+    expect(snapshot.diffs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          availability: "available",
+          path: "notes.md",
+        }),
+        expect.objectContaining({
+          availability: "skipped",
+          fileCount: 3,
+          path: "fixtures/generated/",
+          reason: "dense_directory",
+        }),
+      ]),
+    );
+  });
+
+  test("collapses dense nested untracked directory trees into skipped rows", async () => {
+    const path = await makeRepository();
+
+    await mkdir(join(path, "fixtures/generated/a"), { recursive: true });
+    await mkdir(join(path, "fixtures/generated/b"), { recursive: true });
+    await writeFile(join(path, "fixtures/generated/a/case-1.json"), "{}\n");
+    await writeFile(join(path, "fixtures/generated/b/case-2.json"), "{}\n");
+    await writeFile(join(path, "fixtures/generated/b/case-3.json"), "{}\n");
+
+    const snapshot = await Effect.runPromise(
+      Git.inspectRepository({
+        maxUntrackedFilesPerDirectory: 2,
+        path,
+      }),
+    );
+
+    expect(snapshot.diffs).toEqual([
+      expect.objectContaining({
+        availability: "skipped",
+        fileCount: 3,
+        path: "fixtures/generated/",
+        reason: "dense_directory",
+      }),
+    ]);
+  });
+
+  test("skips untracked files over the configured byte limit", async () => {
+    const path = await makeRepository();
+
+    await writeFile(join(path, "large.txt"), "0123456789\n");
+
+    const snapshot = await Effect.runPromise(
+      Git.inspectRepository({
+        maxUntrackedFileBytes: 5,
+        path,
+      }),
+    );
+
+    expect(snapshot.diffs).toEqual([
+      expect.objectContaining({
+        availability: "skipped",
+        byteCount: 11,
+        path: "large.txt",
+        reason: "large_file",
+        status: "untracked",
+      }),
+    ]);
   });
 });

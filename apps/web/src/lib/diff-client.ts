@@ -7,7 +7,7 @@ export type GitFileStatus =
 
 export type ProjectDiffResponse = {
   readonly diffs: ReadonlyArray<FileDiff>;
-  readonly files: ReadonlyArray<ChangedFile>;
+  readonly files: ReadonlyArray<DiffFileSummary>;
   readonly project: Project;
   readonly ref: GitRef;
 };
@@ -26,10 +26,18 @@ export type GitRef = {
 };
 
 export type ChangedFile = {
+  readonly availability: "available" | "skipped";
   readonly oldPath: string | null;
   readonly path: string;
   readonly status: GitFileStatus;
 };
+
+export type SkippedReason =
+  | "binary_file"
+  | "dense_directory"
+  | "generated_directory"
+  | "large_file"
+  | "too_many_files";
 
 export type DiffLine = {
   readonly content: string;
@@ -47,10 +55,22 @@ export type DiffHunk = {
   readonly oldStart: number;
 };
 
-export type FileDiff = ChangedFile & {
+export type AvailableFileDiff = ChangedFile & {
+  readonly availability: "available";
   readonly binary: boolean;
   readonly hunks: ReadonlyArray<DiffHunk>;
-  readonly truncated: boolean;
+};
+
+export type SkippedFileDiff = ChangedFile & {
+  readonly availability: "skipped";
+  readonly byteCount?: number;
+  readonly fileCount?: number;
+  readonly reason: SkippedReason;
+};
+
+export type FileDiff = AvailableFileDiff | SkippedFileDiff;
+export type DiffFileSummary = ChangedFile & {
+  readonly availability: "available" | "skipped";
 };
 
 export type ProjectComment = {
@@ -87,12 +107,14 @@ export type DiffViewModel = {
   readonly displayRef: string;
   readonly lineCount: number;
   readonly projectPath: string;
+  readonly skippedCount: number;
 };
 
 export type FetchProjectDiffOptions = {
   readonly daemonBaseUrl: string;
   readonly fetch: typeof fetch;
   readonly projectId: string;
+  readonly timeoutMs?: number;
 };
 
 export type ProjectCommentsOptions = {
@@ -160,8 +182,25 @@ export const fetchProjectDiff = async ({
   daemonBaseUrl,
   fetch,
   projectId,
+  timeoutMs = 15_000,
 }: FetchProjectDiffOptions): Promise<ProjectDiffResponse> => {
-  const response = await fetch(buildProjectDiffUrl(daemonBaseUrl, projectId));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+
+  try {
+    response = await fetch(buildProjectDiffUrl(daemonBaseUrl, projectId), {
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Timed out loading project diff");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to load project diff: ${response.status}`);
@@ -238,14 +277,25 @@ export const createProjectComment = async ({
 export const createDiffViewModel = (
   diff: ProjectDiffResponse,
 ): DiffViewModel => ({
-  binaryCount: diff.diffs.filter((file) => file.binary).length,
+  binaryCount: diff.diffs.filter(
+    (file) =>
+      (file.availability === "available" && file.binary) ||
+      (file.availability === "skipped" && file.reason === "binary_file"),
+  ).length,
   changedFileCount: diff.files.length,
   displayRef: diff.ref.displayName,
   lineCount: diff.diffs.reduce(
     (total, file) =>
-      total +
-      file.hunks.reduce((hunkTotal, hunk) => hunkTotal + hunk.lines.length, 0),
+      file.availability === "available"
+        ? total +
+          file.hunks.reduce(
+            (hunkTotal, hunk) => hunkTotal + hunk.lines.length,
+            0,
+          )
+        : total,
     0,
   ),
   projectPath: diff.project.path,
+  skippedCount: diff.diffs.filter((file) => file.availability === "skipped")
+    .length,
 });

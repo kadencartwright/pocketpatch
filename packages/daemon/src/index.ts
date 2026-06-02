@@ -22,6 +22,7 @@ import {
   GitRefSchema,
   GitService,
   GitServiceLive,
+  type RepositorySnapshot,
 } from "@pocketpatch/git";
 import { NetworkService } from "@pocketpatch/network";
 import {
@@ -261,6 +262,16 @@ export class ProjectDiffInspectionError extends Schema.TaggedClass<ProjectDiffIn
   HttpApiSchema.annotations({ status: 500 }),
 ) {}
 
+export class ProjectDiffInspectionTimeoutError extends Schema.TaggedClass<ProjectDiffInspectionTimeoutError>()(
+  "ProjectDiffInspectionTimeoutError",
+  {
+    message: Schema.String,
+    projectId: Schema.Number,
+    timeoutMs: Schema.Number,
+  },
+  HttpApiSchema.annotations({ status: 504 }),
+) {}
+
 export class CommentHttpNotFound extends Schema.TaggedClass<CommentHttpNotFound>()(
   "CommentHttpNotFound",
   {
@@ -295,7 +306,8 @@ export class ProjectsApi extends HttpApiGroup.make("projects")
     )`/projects/${HttpApiSchema.param("id", Schema.NumberFromString)}/diff`
       .addSuccess(ProjectDiffResponseSchema)
       .addError(ProjectHttpNotFound)
-      .addError(ProjectDiffInspectionError),
+      .addError(ProjectDiffInspectionError)
+      .addError(ProjectDiffInspectionTimeoutError),
   )
   .add(
     HttpApiEndpoint.get(
@@ -345,6 +357,46 @@ const HealthApiLive = HttpApiBuilder.group(
     ),
 );
 
+export const inspectProjectDiffSnapshot = ({
+  git,
+  project,
+  projectId,
+  timeoutMs = 15_000,
+}: {
+  readonly git: Context.Tag.Service<typeof GitService>;
+  readonly project: typeof ProjectSchema.Type;
+  readonly projectId: number;
+  readonly timeoutMs?: number;
+}): Effect.Effect<
+  RepositorySnapshot,
+  ProjectDiffInspectionError | ProjectDiffInspectionTimeoutError
+> =>
+  git
+    .inspectRepository({
+      path: project.path,
+    })
+    .pipe(
+      Effect.catchAll((error) =>
+        error instanceof GitCommandError
+          ? Effect.fail(
+              new ProjectDiffInspectionError({
+                message: error.message,
+                projectId,
+              }),
+            )
+          : Effect.die(error),
+      ),
+      Effect.timeoutFail({
+        duration: `${timeoutMs} millis`,
+        onTimeout: () =>
+          new ProjectDiffInspectionTimeoutError({
+            message: `Timed out inspecting project diff after ${timeoutMs}ms`,
+            projectId,
+            timeoutMs,
+          }),
+      }),
+    );
+
 const ProjectsApiLive = HttpApiBuilder.group(
   PocketPatchApi,
   "projects",
@@ -376,22 +428,11 @@ const ProjectsApiLive = HttpApiBuilder.group(
           const storage = yield* StorageService;
           const git = yield* GitService;
           const project = yield* getProjectOrHttpNotFound(storage, path.id);
-          const snapshot = yield* git
-            .inspectRepository({
-              path: project.path,
-            })
-            .pipe(
-              Effect.catchAll((error) =>
-                error instanceof GitCommandError
-                  ? Effect.fail(
-                      new ProjectDiffInspectionError({
-                        message: error.message,
-                        projectId: path.id,
-                      }),
-                    )
-                  : Effect.die(error),
-              ),
-            );
+          const snapshot = yield* inspectProjectDiffSnapshot({
+            git,
+            project,
+            projectId: path.id,
+          });
 
           return makeProjectDiffResponse(project, snapshot);
         }),
